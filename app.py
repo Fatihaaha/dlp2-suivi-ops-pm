@@ -2,9 +2,12 @@
 # ==============================================
 # DLP2 - APPLICATION WEB STREAMLIT v4
 # ==============================================
-# Nouveautés v4 :
-#   - Export Excel formaté pour SharePoint
-#   - Codes couleurs, tableaux, feedbacks et analyses
+# Fonctionnalités :
+#   - Analyse routes BEHIND, AT_RISK, 10+ retours, NA
+#   - Colonne Feedback DSP + Analyse de la route
+#   - Synchronisation auto vers Résumé Global
+#   - Export Excel formaté avec codes couleurs pour SharePoint
+#   - Envoi Slack par DSP
 # ==============================================
 # Installation : pip install streamlit pandas requests openpyxl
 # Lancement   : streamlit run app.py
@@ -32,6 +35,7 @@ st.set_page_config(
 # WEBHOOKS SLACK PAR DSP
 # ============================================
 SLACK_WEBHOOKS = {}
+
 
 def envoyer_slack(webhook_url, message):
     try:
@@ -62,6 +66,7 @@ if 'dsp_analyses' not in st.session_state:
 if 'routes_na' not in st.session_state:
     st.session_state.routes_na = {}
 
+
 # ============================================
 # FONCTIONS UTILITAIRES
 # ============================================
@@ -69,14 +74,22 @@ def get_route_type(svc):
     if pd.isna(svc):
         return "-"
     s = str(svc).lower()
-    if "nursery route level 1" in s: return "Nursery 1"
-    elif "nursery route level 2" in s: return "Nursery 2"
-    elif "nursery route level 3" in s: return "Nursery 3"
-    elif "nursery route level 4" in s: return "Nursery 4"
-    elif "cargo electric bicycle" in s: return "Cargo Bike"
-    elif "park and walk" in s: return "Park & Walk"
-    elif "standard parcel" in s: return "Standard"
-    else: return "-"
+    if "nursery route level 1" in s:
+        return "Nursery 1"
+    elif "nursery route level 2" in s:
+        return "Nursery 2"
+    elif "nursery route level 3" in s:
+        return "Nursery 3"
+    elif "nursery route level 4" in s:
+        return "Nursery 4"
+    elif "cargo electric bicycle" in s:
+        return "Cargo Bike"
+    elif "park and walk" in s:
+        return "Park & Walk"
+    elif "standard parcel" in s:
+        return "Standard"
+    else:
+        return "-"
 
 
 def get_top_reasons(packages_df, route_code):
@@ -90,7 +103,8 @@ def get_top_reasons(packages_df, route_code):
 
 def count_reason(packages_df, route_code, reason):
     subset = packages_df[
-        (packages_df["RouteCode"] == route_code) & (packages_df["ReasonCode"] == reason)
+        (packages_df["RouteCode"] == route_code)
+        & (packages_df["ReasonCode"] == reason)
     ]
     return len(subset)
 
@@ -107,6 +121,14 @@ def get_analyse_for_route(route_code):
         if route_code in a_key and a_text:
             return a_text
     return ""
+
+
+def get_all_na_routes():
+    all_na = []
+    for na_key, na_list in st.session_state.routes_na.items():
+        for item in na_list:
+            all_na.append(item)
+    return all_na
 
 
 def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
@@ -136,16 +158,25 @@ def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
         df,
         column_config={
             "💬 Feedback DSP": st.column_config.TextColumn(
-                "💬 Feedback DSP", help="Feedback envoyé au DSP sur Slack",
-                max_chars=500, width="large",
+                "💬 Feedback DSP",
+                help="Feedback envoyé au DSP sur Slack",
+                max_chars=500,
+                width="large",
             ),
             "🔍 Analyse de la route": st.column_config.TextColumn(
-                "🔍 Analyse de la route", help="Notre analyse interne de la route",
-                max_chars=500, width="large",
+                "🔍 Analyse de la route",
+                help="Notre analyse interne de la route",
+                max_chars=500,
+                width="large",
             ),
         },
-        disabled=[col for col in df.columns if col not in ["💬 Feedback DSP", "🔍 Analyse de la route"]],
-        hide_index=True, use_container_width=True, key=f"editor_{section_key}"
+        disabled=[
+            col for col in df.columns
+            if col not in ["💬 Feedback DSP", "🔍 Analyse de la route"]
+        ],
+        hide_index=True,
+        use_container_width=True,
+        key=f"editor_{section_key}"
     )
 
     for idx, row in edited.iterrows():
@@ -182,7 +213,8 @@ def afficher_section_na(section_key, dsp_name=""):
             if na_key not in st.session_state.routes_na:
                 st.session_state.routes_na[na_key] = []
             st.session_state.routes_na[na_key].append({
-                "Route": na_route.strip(), "DSP": dsp_name,
+                "Route": na_route.strip(),
+                "DSP": dsp_name,
                 "Nb non tentés": na_nb,
                 "💬 Feedback DSP": na_feedback,
                 "🔍 Analyse de la route": na_analyse,
@@ -201,11 +233,17 @@ def afficher_section_na(section_key, dsp_name=""):
         edited_na = st.data_editor(
             na_df,
             column_config={
-                "💬 Feedback DSP": st.column_config.TextColumn("💬 Feedback DSP", max_chars=500, width="large"),
-                "🔍 Analyse de la route": st.column_config.TextColumn("🔍 Analyse", max_chars=500, width="large"),
+                "💬 Feedback DSP": st.column_config.TextColumn(
+                    "💬 Feedback DSP", max_chars=500, width="large"
+                ),
+                "🔍 Analyse de la route": st.column_config.TextColumn(
+                    "🔍 Analyse", max_chars=500, width="large"
+                ),
             },
-            disabled=["Route", "DSP"], hide_index=True,
-            use_container_width=True, key=f"editor_na_{section_key}"
+            disabled=["Route", "DSP"],
+            hide_index=True,
+            use_container_width=True,
+            key=f"editor_na_{section_key}"
         )
         st.session_state.routes_na[na_key] = edited_na.to_dict('records')
         for _, row in edited_na.iterrows():
@@ -224,30 +262,18 @@ def afficher_section_na(section_key, dsp_name=""):
         st.info("Aucune route NA saisie pour le moment.")
 
 
-def get_all_na_routes():
-    all_na = []
-    for na_key, na_list in st.session_state.routes_na.items():
-        for item in na_list:
-            all_na.append(item)
-    return all_na
-
-
 # ============================================
 # GÉNÉRATION EXCEL FORMATÉ
 # ============================================
 def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsps):
-    """Génère un fichier Excel formaté avec codes couleurs pour SharePoint."""
-
     output = io.BytesIO()
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     all_na = get_all_na_routes()
 
-    # Styles
     thin_border = Border(
         left=Side(style='thin'), right=Side(style='thin'),
         top=Side(style='thin'), bottom=Side(style='thin')
     )
-    # Couleurs d'en-tête
     fill_title = PatternFill(start_color="003366", end_color="003366", fill_type="solid")
     font_title = Font(bold=True, color="FFFFFF", size=14)
     fill_behind_hdr = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
@@ -256,14 +282,12 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
     fill_na_hdr = PatternFill(start_color="607D8B", end_color="607D8B", fill_type="solid")
     fill_bilan_hdr = PatternFill(start_color="003366", end_color="003366", fill_type="solid")
     font_hdr = Font(bold=True, color="FFFFFF", size=10)
-    # Couleurs de lignes
     fill_behind_row = PatternFill(start_color="FFE0E0", end_color="FFE0E0", fill_type="solid")
     fill_atrisk_row = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
     fill_retour_row = PatternFill(start_color="FFEBCD", end_color="FFEBCD", fill_type="solid")
     fill_na_row = PatternFill(start_color="ECEFF1", end_color="ECEFF1", fill_type="solid")
     fill_feedback = PatternFill(start_color="FFFFF0", end_color="FFFFF0", fill_type="solid")
     fill_analyse = PatternFill(start_color="F0F8FF", end_color="F0F8FF", fill_type="solid")
-    font_section = Font(bold=True, size=12)
     font_normal = Font(size=10)
     align_center = Alignment(horizontal="center", vertical="center")
     align_wrap = Alignment(wrap_text=True, vertical="top")
@@ -289,23 +313,19 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
         for col in range(1, max_col + 1):
             letter = get_column_letter(col)
             max_len = min_w
-            for row in ws.iter_rows(min_col=col, max_col=col, values_only=False):
-                for cell in row:
+            for cell_row in ws.iter_rows(min_col=col, max_col=col, values_only=False):
+                for cell in cell_row:
                     if cell.value:
                         max_len = max(max_len, min(len(str(cell.value)) + 2, max_w))
             ws.column_dimensions[letter].width = max_len
 
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
 
-        # ============================================
-        # ONGLET 1 : RÉSUMÉ GLOBAL
-        # ============================================
+        # ========== ONGLET RÉSUMÉ GLOBAL ==========
         ws_name = "Résumé Global"
-        # Créer un DataFrame vide pour initialiser l'onglet
         pd.DataFrame().to_excel(writer, sheet_name=ws_name, index=False)
         ws = writer.sheets[ws_name]
 
-        # Titre
         ws.merge_cells('A1:I1')
         ws['A1'].value = f"📊 DLP2 - RÉSUMÉ OPS DU {now}"
         ws['A1'].fill = fill_title
@@ -315,7 +335,7 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
 
         row = 3
 
-        # --- BILAN PAR DSP ---
+        # BILAN PAR DSP
         ws.cell(row=row, column=1).value = "📋 BILAN PAR DSP"
         ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="003366")
         row += 1
@@ -354,7 +374,7 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
 
         row += 2
 
-        # --- BEHIND ---
+        # BEHIND
         if not behind.empty:
             ws.cell(row=row, column=1).value = "🔴 ROUTES EN RETARD (BEHIND)"
             ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="C00000")
@@ -383,10 +403,9 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=9).fill = fill_feedback
                 ws.cell(row=row, column=10).fill = fill_analyse
                 row += 1
-
             row += 2
 
-        # --- AT_RISK ---
+        # AT_RISK
         if not atrisk.empty:
             ws.cell(row=row, column=1).value = "🟠 ROUTES A RISQUE (AT_RISK)"
             ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="FF8C00")
@@ -415,27 +434,27 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=9).fill = fill_feedback
                 ws.cell(row=row, column=10).fill = fill_analyse
                 row += 1
-
             row += 2
 
-        # --- 10+ RETOURS ---
+        # 10+ RETOURS
         if not retours10.empty:
             ws.cell(row=row, column=1).value = "📦 ROUTES AVEC 10+ RETOURS"
             ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="C05000")
             row += 1
 
             ret_headers = ["Route", "DSP", "Type", "Progression", "Retours",
-                           "CUSTOMER UNAVAIL.", "BUSINESS CLOSED", "ADDRESS NOT FOUND",
-                           "INACCESSIBLE", "RESCHEDULED", "LOCKER ISSUE", "Autres",
+                           "CUST. UNAVAIL.", "BUS. CLOSED", "ADDR NOT FOUND",
+                           "INACCESSIBLE", "RESCHEDULED", "LOCKER", "Autres",
                            "💬 Feedback DSP", "🔍 Analyse"]
             for c, h in enumerate(ret_headers, 1):
                 ws.cell(row=row, column=c).value = h
             apply_header_style(ws, row, len(ret_headers), fill_retour_hdr)
             row += 1
 
-            reasons_list = ["CUSTOMER UNAVAILABLE", "BUSINESS CLOSED", "ADDRESS NOT FOUND",
-                            "INACCESSIBLE DELIVERY LOCATION", "RESCHEDULED BY CUSTOMER", "LOCKER ISSUE"]
-
+            reasons_list = [
+                "CUSTOMER UNAVAILABLE", "BUSINESS CLOSED", "ADDRESS NOT FOUND",
+                "INACCESSIBLE DELIVERY LOCATION", "RESCHEDULED BY CUSTOMER", "LOCKER ISSUE"
+            ]
             for _, r in retours10.iterrows():
                 rc = r["Code de la route"]
                 ws.cell(row=row, column=1).value = rc
@@ -443,7 +462,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=3).value = drt.get(rc, "-")
                 ws.cell(row=row, column=4).value = r.get("Progression de la route", "-")
                 ws.cell(row=row, column=5).value = r.get("retours", 0)
-
                 total_known = 0
                 for ri, reason in enumerate(reasons_list):
                     c = count_reason(packages, rc, reason)
@@ -452,15 +470,13 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=12).value = int(r.get("retours", 0)) - total_known
                 ws.cell(row=row, column=13).value = get_feedback_for_route(rc)
                 ws.cell(row=row, column=14).value = get_analyse_for_route(rc)
-
                 apply_row_style(ws, row, len(ret_headers), fill_retour_row)
                 ws.cell(row=row, column=13).fill = fill_feedback
                 ws.cell(row=row, column=14).fill = fill_analyse
                 row += 1
-
             row += 2
 
-        # --- ROUTES NA ---
+        # ROUTES NA
         if all_na:
             ws.cell(row=row, column=1).value = "⚪ ROUTES NA (NON TENTÉS)"
             ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="607D8B")
@@ -483,16 +499,12 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=5).fill = fill_analyse
                 row += 1
 
-        # Footer
         row += 2
         ws.cell(row=row, column=1).value = f"Généré automatiquement - DLP2 Suivi Ops - {now}"
         ws.cell(row=row, column=1).font = Font(italic=True, color="808080", size=9)
-
         auto_width(ws, 14)
 
-        # ============================================
-        # ONGLETS PAR DSP
-        # ============================================
+        # ========== ONGLETS PAR DSP ==========
         for dsp in dsps:
             tab_name = dsp[:31]
             pd.DataFrame().to_excel(writer, sheet_name=tab_name, index=False)
@@ -504,7 +516,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
             dsp_ret10 = dsp_routes[dsp_routes["retours"] >= 10]
             dsp_na = [r for r in all_na if r.get("DSP", "") == dsp]
 
-            # Titre DSP
             ws_dsp.merge_cells('A1:J1')
             ws_dsp['A1'].value = f"🏢 DSP : {dsp} — {now}"
             ws_dsp['A1'].fill = fill_title
@@ -512,7 +523,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
             ws_dsp['A1'].alignment = align_center
             ws_dsp.row_dimensions[1].height = 35
 
-            # Métriques
             ws_dsp.cell(row=2, column=1).value = f"BEHIND: {len(dsp_behind)}"
             ws_dsp.cell(row=2, column=1).font = Font(bold=True, color="C00000")
             ws_dsp.cell(row=2, column=3).value = f"AT_RISK: {len(dsp_atrisk)}"
@@ -526,7 +536,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
             dsp_headers = ["Route", "Type", "Arrêts", "Effectués", "Restants",
                            "Livraisons", "Retours", "💬 Feedback DSP", "🔍 Analyse"]
 
-            # BEHIND
             if not dsp_behind.empty:
                 ws_dsp.cell(row=row, column=1).value = "🔴 BEHIND"
                 ws_dsp.cell(row=row, column=1).font = Font(bold=True, size=11, color="C00000")
@@ -552,7 +561,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                     row += 1
                 row += 1
 
-            # AT_RISK
             if not dsp_atrisk.empty:
                 ws_dsp.cell(row=row, column=1).value = "🟠 AT_RISK"
                 ws_dsp.cell(row=row, column=1).font = Font(bold=True, size=11, color="FF8C00")
@@ -578,7 +586,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                     row += 1
                 row += 1
 
-            # 10+ RETOURS
             if not dsp_ret10.empty:
                 ws_dsp.cell(row=row, column=1).value = "📦 10+ RETOURS"
                 ws_dsp.cell(row=row, column=1).font = Font(bold=True, size=11, color="C05000")
@@ -604,7 +611,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                     row += 1
                 row += 1
 
-            # ROUTES NA
             if dsp_na:
                 ws_dsp.cell(row=row, column=1).value = "⚪ ROUTES NA"
                 ws_dsp.cell(row=row, column=1).font = Font(bold=True, size=11, color="607D8B")
@@ -624,7 +630,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                     ws_dsp.cell(row=row, column=4).fill = fill_analyse
                     row += 1
 
-            # Si rien à signaler
             if dsp_behind.empty and dsp_atrisk.empty and dsp_ret10.empty and not dsp_na:
                 ws_dsp.cell(row=row, column=1).value = "✅ Aucun problème à signaler pour ce DSP"
                 ws_dsp.cell(row=row, column=1).font = Font(bold=True, color="008000", size=11)
@@ -650,7 +655,8 @@ def build_slack_message(dsp_name, behind_df, atrisk_df, retours_df, packages_df,
             left = r.get("arrêts non démarrés", "?")
             nb = r.get("retours", 0)
             line = f"  - {rc} [{rt}] : {left} restants"
-            if nb > 0: line += f" | {nb} retour(s)"
+            if nb > 0:
+                line += f" | {nb} retour(s)"
             msg += line + "\n"
         msg += "\n"
     else:
@@ -664,7 +670,8 @@ def build_slack_message(dsp_name, behind_df, atrisk_df, retours_df, packages_df,
             left = r.get("arrêts non démarrés", "?")
             nb = r.get("retours", 0)
             line = f"  - {rc} [{rt}] : {left} restants"
-            if nb > 0: line += f" | {nb} retour(s)"
+            if nb > 0:
+                line += f" | {nb} retour(s)"
             msg += line + "\n"
         msg += "\n"
     else:
@@ -730,6 +737,7 @@ file_itin = st.sidebar.file_uploader("3. Extract ITINÉRAIRES (CSV) - optionnel"
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Config Slack")
+
 if 'custom_webhooks' not in st.session_state:
     st.session_state.custom_webhooks = {}
 
@@ -795,12 +803,18 @@ all_na = get_all_na_routes()
 # ============================================
 st.markdown(f"**Analyse du {now_str}**")
 col1, col2, col3, col4, col5, col6 = st.columns(6)
-with col1: st.metric("🔴 BEHIND", len(behind))
-with col2: st.metric("🟠 AT_RISK", len(atrisk))
-with col3: st.metric("📦 10+ Retours", len(retours10))
-with col4: st.metric("⚪ Routes NA", len(all_na))
-with col5: st.metric("📊 Total Routes", len(routes))
-with col6: st.metric("🏢 DSP", len(dsps))
+with col1:
+    st.metric("🔴 BEHIND", len(behind))
+with col2:
+    st.metric("🟠 AT_RISK", len(atrisk))
+with col3:
+    st.metric("📦 10+ Retours", len(retours10))
+with col4:
+    st.metric("⚪ Routes NA", len(all_na))
+with col5:
+    st.metric("📊 Total Routes", len(routes))
+with col6:
+    st.metric("🏢 DSP", len(dsps))
 
 
 # ============================================
@@ -815,13 +829,20 @@ tabs = st.tabs(tab_names)
 # ============================================
 with tabs[0]:
     st.markdown("## 📊 Résumé Global")
-    st.markdown('<div class="sync-info">🔄 Les feedbacks et analyses saisis dans les onglets DSP apparaissent automatiquement ici.</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sync-info">🔄 Les feedbacks et analyses saisis dans les onglets DSP '
+        'apparaissent automatiquement ici.</div>',
+        unsafe_allow_html=True
+    )
     st.markdown("")
 
     # BEHIND
     st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
     if not behind.empty:
-        display_behind = behind[["Code de la route", "DSP", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
+        display_behind = behind[[
+            "Code de la route", "DSP", "Type", "Tous les arrêts",
+            "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"
+        ]].copy()
         display_behind.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
         afficher_tableau_avec_feedback(display_behind, "global_behind", sync_to_global=True)
     else:
@@ -832,7 +853,10 @@ with tabs[0]:
     # AT_RISK
     st.markdown('<span class="atrisk-badge">ROUTES A RISQUE (AT_RISK)</span>', unsafe_allow_html=True)
     if not atrisk.empty:
-        display_atrisk = atrisk[["Code de la route", "DSP", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
+        display_atrisk = atrisk[[
+            "Code de la route", "DSP", "Type", "Tous les arrêts",
+            "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"
+        ]].copy()
         display_atrisk.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
         afficher_tableau_avec_feedback(display_atrisk, "global_atrisk", sync_to_global=True)
     else:
@@ -843,13 +867,17 @@ with tabs[0]:
     # 10+ RETOURS
     st.markdown('<span class="retour-badge">ROUTES AVEC 10+ RETOURS</span>', unsafe_allow_html=True)
     if not retours10.empty:
-        reasons_list = ["CUSTOMER UNAVAILABLE", "BUSINESS CLOSED", "ADDRESS NOT FOUND",
-            "INACCESSIBLE DELIVERY LOCATION", "RESCHEDULED BY CUSTOMER", "LOCKER ISSUE"]
+        reasons_list = [
+            "CUSTOMER UNAVAILABLE", "BUSINESS CLOSED", "ADDRESS NOT FOUND",
+            "INACCESSIBLE DELIVERY LOCATION", "RESCHEDULED BY CUSTOMER", "LOCKER ISSUE"
+        ]
         rows = []
         for _, r in retours10.iterrows():
             rc = r["Code de la route"]
-            row_data = {"Route": rc, "DSP": r["DSP"], "Type": r["Type"],
-                   "Progression": r["Progression de la route"], "Retours": r["retours"]}
+            row_data = {
+                "Route": rc, "DSP": r["DSP"], "Type": r["Type"],
+                "Progression": r["Progression de la route"], "Retours": r["retours"]
+            }
             total_known = 0
             for reason in reasons_list:
                 c = count_reason(packages, rc, reason)
@@ -889,9 +917,7 @@ with tabs[0]:
         })
     st.dataframe(pd.DataFrame(bilan_rows), use_container_width=True, hide_index=True)
 
-    # ============================================
-    # EXPORT EXCEL POUR SHAREPOINT
-    # ============================================
+    # EXPORT EXCEL
     st.markdown("---")
     st.markdown("### 📥 Exporter pour SharePoint")
     st.markdown(
@@ -934,7 +960,11 @@ for idx, dsp in enumerate(dsps):
     with tabs[idx + 1]:
         st.markdown(f"## 🏢 {dsp}")
         st.caption(f"Analyse du {now_str}")
-        st.markdown('<div class="sync-info">🔄 Feedbacks et analyses se synchronisent automatiquement dans le Résumé Global.</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sync-info">🔄 Feedbacks et analyses se synchronisent '
+            'automatiquement dans le Résumé Global.</div>',
+            unsafe_allow_html=True
+        )
         st.markdown("")
 
         dsp_routes = routes[routes["DSP"] == dsp].copy()
@@ -944,16 +974,24 @@ for idx, dsp in enumerate(dsps):
         dsp_na_list = [r for r in all_na if r.get("DSP", "") == dsp]
 
         c1, c2, c3, c4, c5 = st.columns(5)
-        with c1: st.metric("🔴 BEHIND", len(dsp_behind))
-        with c2: st.metric("🟠 AT_RISK", len(dsp_atrisk))
-        with c3: st.metric("📦 10+ Ret.", len(dsp_ret10))
-        with c4: st.metric("⚪ NA", len(dsp_na_list))
-        with c5: st.metric("📊 Total Ret.", int(dsp_routes["retours"].sum()))
+        with c1:
+            st.metric("🔴 BEHIND", len(dsp_behind))
+        with c2:
+            st.metric("🟠 AT_RISK", len(dsp_atrisk))
+        with c3:
+            st.metric("📦 10+ Ret.", len(dsp_ret10))
+        with c4:
+            st.metric("⚪ NA", len(dsp_na_list))
+        with c5:
+            st.metric("📊 Total Ret.", int(dsp_routes["retours"].sum()))
 
         # BEHIND
         st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
         if not dsp_behind.empty:
-            df_b = dsp_behind[["Code de la route", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
+            df_b = dsp_behind[[
+                "Code de la route", "Type", "Tous les arrêts",
+                "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"
+            ]].copy()
             df_b.columns = ["Route", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
             afficher_tableau_avec_feedback(df_b, f"dsp_{dsp}_behind")
         else:
@@ -962,7 +1000,10 @@ for idx, dsp in enumerate(dsps):
         # AT_RISK
         st.markdown('<span class="atrisk-badge">ROUTES A RISQUE (AT_RISK)</span>', unsafe_allow_html=True)
         if not dsp_atrisk.empty:
-            df_a = dsp_atrisk[["Code de la route", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
+            df_a = dsp_atrisk[[
+                "Code de la route", "Type", "Tous les arrêts",
+                "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"
+            ]].copy()
             df_a.columns = ["Route", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
             afficher_tableau_avec_feedback(df_a, f"dsp_{dsp}_atrisk")
         else:
@@ -974,8 +1015,12 @@ for idx, dsp in enumerate(dsps):
             rows_r = []
             for _, r in dsp_ret10.iterrows():
                 rc = r["Code de la route"]
-                rows_r.append({"Route": rc, "Type": r["Type"], "Progression": r["Progression de la route"],
-                    "Retours": r["retours"], "Raisons": get_top_reasons(packages, rc)})
+                rows_r.append({
+                    "Route": rc, "Type": r["Type"],
+                    "Progression": r["Progression de la route"],
+                    "Retours": r["retours"],
+                    "Raisons": get_top_reasons(packages, rc)
+                })
             afficher_tableau_avec_feedback(pd.DataFrame(rows_r), f"dsp_{dsp}_retours")
         else:
             st.success("✅ Aucune route avec 10+ retours")
@@ -992,7 +1037,10 @@ for idx, dsp in enumerate(dsps):
         dsp_route_codes = dsp_routes["Code de la route"].unique()
         dsp_packages = packages[packages["RouteCode"].isin(dsp_route_codes)]
         if not dsp_packages.empty:
-            prog_map = dict(zip(dsp_routes["Code de la route"], dsp_routes["Progression de la route"]))
+            prog_map = dict(zip(
+                dsp_routes["Code de la route"],
+                dsp_routes["Progression de la route"]
+            ))
             df_det = dsp_packages[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
             df_det.insert(1, "Type", df_det["RouteCode"].map(drt))
             df_det.insert(2, "Progression", df_det["RouteCode"].map(prog_map))
@@ -1013,7 +1061,11 @@ for idx, dsp in enumerate(dsps):
         with btn_col2:
             if dsp in all_webhooks:
                 if dsp in st.session_state.sent_messages:
-                    st.markdown(f'<div class="sent-ok">✅ Envoyé à {st.session_state.sent_messages[dsp]}</div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="sent-ok">✅ Envoyé à '
+                        f'{st.session_state.sent_messages[dsp]}</div>',
+                        unsafe_allow_html=True
+                    )
                     if st.button("🔄 Renvoyer", key=f"resend_{dsp}"):
                         if envoyer_slack(all_webhooks[dsp], slack_msg):
                             st.session_state.sent_messages[dsp] = datetime.now().strftime("%H:%M")
@@ -1038,5 +1090,4 @@ with tabs[-1]:
         if fb_key.startswith("route_"):
             all_route_keys.add(fb_key.replace("route_", ""))
     for a_key in st.session_state.dsp_analyses:
-        if a_key.startswith("route_"):
-            all_route_keys.add(a_key
+        
