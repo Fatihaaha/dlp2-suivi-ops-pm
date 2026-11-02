@@ -9,8 +9,7 @@ import requests
 import json
 import io
 from datetime import datetime
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+
 
 
 # ============================================
@@ -286,6 +285,8 @@ def build_slack_message(dsp_name, behind_df, atrisk_df, retours_df, packages_df,
 # ============================================
 def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsps):
     output = io.BytesIO()
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     all_na = get_all_na_routes()
 
