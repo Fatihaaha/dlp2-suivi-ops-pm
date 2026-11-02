@@ -89,6 +89,52 @@ if all_webhooks:
     for dn in all_webhooks:
         st.sidebar.markdown(f"  ✅ {dn}")
 
+# ============================================
+# SAUVEGARDE / RESTAURATION FEEDBACKS
+# ============================================
+st.sidebar.markdown("---")
+st.sidebar.header("💾 Feedbacks entre Flow Meetings")
+
+# SAUVEGARDER
+if st.sidebar.button("💾 Sauvegarder les feedbacks", key="save_fb", type="primary"):
+    save_data = {
+        "feedbacks": dict(st.session_state.dsp_feedbacks),
+        "analyses": dict(st.session_state.dsp_analyses),
+        "routes_na": dict(st.session_state.routes_na),
+        "sent_messages": dict(st.session_state.sent_messages),
+        "saved_at": datetime.now().strftime("%d/%m/%Y %H:%M")
+    }
+    st.session_state.saved_feedbacks = save_data
+    st.sidebar.success(f"✅ Feedbacks sauvegardés à {save_data['saved_at']}")
+
+# Bouton télécharger la sauvegarde
+if 'saved_feedbacks' in st.session_state:
+    import json as json_mod
+    save_json = json_mod.dumps(st.session_state.saved_feedbacks, ensure_ascii=False, indent=2)
+    st.sidebar.download_button(
+        label="📥 Télécharger sauvegarde (JSON)",
+        data=save_json.encode('utf-8'),
+        file_name=f"feedbacks_FM1_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+        mime="application/json",
+        key="dl_save"
+    )
+    st.sidebar.caption(f"💾 Dernière sauvegarde : {st.session_state.saved_feedbacks['saved_at']}")
+
+# RESTAURER
+uploaded_save = st.sidebar.file_uploader("📤 Restaurer feedbacks (JSON)", type=["json"], key="restore_fb")
+if uploaded_save is not None:
+    import json as json_mod
+    try:
+        restored = json_mod.loads(uploaded_save.read().decode('utf-8'))
+        st.session_state.dsp_feedbacks.update(restored.get("feedbacks", {}))
+        st.session_state.dsp_analyses.update(restored.get("analyses", {}))
+        st.session_state.routes_na.update(restored.get("routes_na", {}))
+        st.session_state.sent_messages.update(restored.get("sent_messages", {}))
+        st.sidebar.success(f"✅ Feedbacks restaurés ! (sauvegarde du {restored.get('saved_at', '?')})")
+    except Exception as e:
+        st.sidebar.error(f"❌ Erreur : {e}")
+
+
 if file_routes is None or file_packages is None:
     st.info("👈 Chargez vos fichiers CSV dans la barre latérale pour lancer l'analyse.")
     st.markdown("### 📋 Mode d'emploi")
