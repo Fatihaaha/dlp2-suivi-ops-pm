@@ -73,17 +73,24 @@ def count_reason(packages_df, route_code, reason):
 
 
 def get_feedback_for_route(route_code):
+    best = ""
     for fb_key, fb_text in st.session_state.dsp_feedbacks.items():
-        if route_code in fb_key and fb_text:
-            return fb_text
-    return ""
+        if route_code in fb_key and fb_text and str(fb_text).strip():
+            if fb_key == f"route_{route_code}":
+                return str(fb_text).strip()
+            best = str(fb_text).strip()
+    return best
+
 
 
 def get_analyse_for_route(route_code):
+    best = ""
     for a_key, a_text in st.session_state.dsp_analyses.items():
-        if route_code in a_key and a_text:
-            return a_text
-    return ""
+        if route_code in a_key and a_text and str(a_text).strip():
+            if a_key == f"route_{route_code}":
+                return str(a_text).strip()
+            best = str(a_text).strip()
+    return best
 
 
 def get_all_na_routes():
@@ -104,21 +111,14 @@ def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
 
     for idx, row in df.iterrows():
         route_id = str(row.get("Route", idx))
-        fb_key = f"{section_key}_{route_id}"
 
-        if fb_key in st.session_state.dsp_feedbacks:
-            df.at[idx, "💬 Feedback DSP"] = st.session_state.dsp_feedbacks[fb_key]
-        elif sync_to_global:
-            fb = get_feedback_for_route(route_id)
-            if fb:
-                df.at[idx, "💬 Feedback DSP"] = fb
+        fb = get_feedback_for_route(route_id)
+        if fb:
+            df.at[idx, "💬 Feedback DSP"] = fb
 
-        if fb_key in st.session_state.dsp_analyses:
-            df.at[idx, "🔍 Analyse de la route"] = st.session_state.dsp_analyses[fb_key]
-        elif sync_to_global:
-            an = get_analyse_for_route(route_id)
-            if an:
-                df.at[idx, "🔍 Analyse de la route"] = an
+        an = get_analyse_for_route(route_id)
+        if an:
+            df.at[idx, "🔍 Analyse de la route"] = an
 
     edited = st.data_editor(
         df,
@@ -144,16 +144,25 @@ def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
     for idx, row in edited.iterrows():
         route_id = str(row.get("Route", idx))
         fb_key = f"{section_key}_{route_id}"
+
         feedback = row.get("💬 Feedback DSP", "")
         if feedback and str(feedback).strip():
-            st.session_state.dsp_feedbacks[fb_key] = str(feedback).strip()
-            st.session_state.dsp_feedbacks[f"route_{route_id}"] = str(feedback).strip()
+            feedback_clean = str(feedback).strip()
+            st.session_state.dsp_feedbacks[fb_key] = feedback_clean
+            st.session_state.dsp_feedbacks[f"route_{route_id}"] = feedback_clean
+        else:
+            st.session_state.dsp_feedbacks.pop(fb_key, None)
+
         analyse = row.get("🔍 Analyse de la route", "")
         if analyse and str(analyse).strip():
-            st.session_state.dsp_analyses[fb_key] = str(analyse).strip()
-            st.session_state.dsp_analyses[f"route_{route_id}"] = str(analyse).strip()
+            analyse_clean = str(analyse).strip()
+            st.session_state.dsp_analyses[fb_key] = analyse_clean
+            st.session_state.dsp_analyses[f"route_{route_id}"] = analyse_clean
+        else:
+            st.session_state.dsp_analyses.pop(fb_key, None)
 
     return edited
+
 
 
 # ============================================
