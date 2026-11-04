@@ -279,4 +279,155 @@ for idx, dsp in enumerate(dsps):
 
         st.markdown('<span class="behind-badge">BEHIND</span>', unsafe_allow_html=True)
         if not dsp_behind.empty:
-            df
+            
+            dfb = dsp_behind[["Code de la route", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
+            dfb.columns = ["Route", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
+            afficher_tableau_avec_feedback(dfb, f"dsp_behind_{dsp}")
+        else:
+            st.success("✅ Aucune route BEHIND")
+
+        st.markdown("---")
+        st.markdown('<span class="atrisk-badge">AT_RISK</span>', unsafe_allow_html=True)
+        if not dsp_atrisk.empty:
+            dfa = dsp_atrisk[["Code de la route", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
+            dfa.columns = ["Route", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
+            afficher_tableau_avec_feedback(dfa, f"dsp_atrisk_{dsp}")
+        else:
+            st.success("✅ Aucune route AT_RISK")
+
+        st.markdown("---")
+        st.markdown('<span class="retour-badge">10+ RETOURS</span>', unsafe_allow_html=True)
+        if not dsp_ret10.empty:
+            dfr = dsp_ret10[["Code de la route", "Type", "Progression de la route", "retours"]].copy()
+            dfr.columns = ["Route", "Type", "Progression", "Retours"]
+            afficher_tableau_avec_feedback(dfr, f"dsp_ret10_{dsp}")
+        else:
+            st.success("✅ Aucune route avec 10+ retours")
+
+        # AJOUT MANUEL 10+ RETOURS
+        st.markdown("---")
+        st.markdown('<span class="retour-badge">➕ AJOUTER DES ROUTES 10+ RETOURS</span>', unsafe_allow_html=True)
+        st.markdown("")
+        afficher_section_retours_manual(f"ret_{dsp}", dsp_name=dsp)
+
+        st.markdown("---")
+        st.markdown('<span class="na-badge">ROUTES NA</span>', unsafe_allow_html=True)
+        st.markdown("")
+        afficher_section_na(f"na_{dsp}", dsp_name=dsp)
+
+        # DÉTAIL DES RETOURS PAR ROUTE
+        st.markdown("---")
+        st.markdown("### 📋 Détail des retours par route")
+        dsp_codes = dsp_routes["Code de la route"].unique()
+        dsp_pkg = packages[packages["RouteCode"].isin(dsp_codes)]
+        if not dsp_pkg.empty:
+            reasons_list = [
+                "CUSTOMER UNAVAILABLE", "BUSINESS CLOSED", "ADDRESS NOT FOUND",
+                "INACCESSIBLE DELIVERY LOCATION", "RESCHEDULED BY CUSTOMER", "LOCKER ISSUE"
+            ]
+            detail_rows = []
+            for rc in dsp_codes:
+                route_pkg = dsp_pkg[dsp_pkg["RouteCode"] == rc]
+                if route_pkg.empty:
+                    continue
+                row_data = {
+                    "Route": rc,
+                    "Type": drt.get(rc, "-"),
+                }
+                total_known = 0
+                for reason in reasons_list:
+                    cnt = len(route_pkg[route_pkg["ReasonCode"] == reason])
+                    short_name = reason.replace("CUSTOMER ", "").replace("DELIVERY ", "").replace("BY CUSTOMER", "").replace("ISSUE", "").strip()[:12]
+                    row_data[short_name] = cnt
+                    total_known += cnt
+                row_data["Autres"] = len(route_pkg) - total_known
+                row_data["Total"] = len(route_pkg)
+                detail_rows.append(row_data)
+            if detail_rows:
+                detail_df = pd.DataFrame(detail_rows)
+                detail_df = detail_df.sort_values("Total", ascending=False)
+                st.dataframe(detail_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucun retour")
+        else:
+            st.info("Aucun retour")
+
+        # BAD WEATHER & UNSAFE DUE TO DOG
+        if not dsp_pkg.empty:
+            bad_weather = dsp_pkg[dsp_pkg["ReasonCode"].str.lower().str.contains("bad weather", na=False)]
+            st.markdown("---")
+            st.markdown("### ⛈️ Bad Weather")
+            if not bad_weather.empty:
+                st.markdown(f'<span style="background-color:#1565C0;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">⛈️ {len(bad_weather)} colis — {bad_weather["RouteCode"].nunique()} routes</span>', unsafe_allow_html=True)
+                bw_detail = bad_weather[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
+                bw_detail.insert(1, "Type", bw_detail["RouteCode"].map(drt))
+                bw_detail.columns = ["Route", "Type", "Tracking", "Adresse", "Raison"]
+                st.dataframe(bw_detail, use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ Aucun retour Bad Weather")
+            unsafe_dog = dsp_pkg[dsp_pkg["ReasonCode"].str.lower().str.contains("unsafe due to dog", na=False)]
+            st.markdown("---")
+            st.markdown("### 🐕 Unsafe due to Dog")
+            if not unsafe_dog.empty:
+                st.markdown(f'<span style="background-color:#C62828;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">🐕 {len(unsafe_dog)} colis — {unsafe_dog["RouteCode"].nunique()} routes</span>', unsafe_allow_html=True)
+                dog_detail = unsafe_dog[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
+                dog_detail.insert(1, "Type", dog_detail["RouteCode"].map(drt))
+                dog_detail.columns = ["Route", "Type", "Tracking", "Adresse", "Raison"]
+                st.dataframe(dog_detail, use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ Aucun retour Unsafe due to Dog")
+
+        # MESSAGE SLACK
+        st.markdown("---")
+        st.markdown("### 💬 Message Slack")
+        slack_msg = build_slack_message(dsp, dsp_behind, dsp_atrisk, dsp_ret10, packages, drt, all_na, all_mr)
+        st.markdown(f'<div class="slack-box">{slack_msg}</div>', unsafe_allow_html=True)
+
+        msg_key = f"sent_{dsp}"
+        if msg_key in st.session_state.sent_messages:
+            st.markdown(f'<div class="sent-ok">✅ Message envoyé à {st.session_state.sent_messages[msg_key]}</div>', unsafe_allow_html=True)
+
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            if st.button(f"📋 Copier le message", key=f"copy_{dsp}"):
+                st.code(slack_msg, language=None)
+        with sc2:
+            webhook_url = all_webhooks.get(dsp, "")
+            if webhook_url:
+                if st.button(f"📤 Envoyer sur Slack", key=f"send_{dsp}", type="primary"):
+                    if envoyer_slack(webhook_url, slack_msg):
+                        st.session_state.sent_messages[msg_key] = datetime.now().strftime("%H:%M")
+                        st.success("✅ Envoyé !")
+                        st.rerun()
+                    else:
+                        st.error("❌ Échec de l'envoi")
+            else:
+                st.info("💡 Configurez le webhook Slack pour ce DSP dans la sidebar")
+
+# ONGLET FEEDBACKS
+with tabs[-1]:
+    st.markdown("## 📝 Tous les Feedbacks")
+    all_fb = []
+    for fb_key, fb_text in st.session_state.dsp_feedbacks.items():
+        if fb_text and str(fb_text).strip() and fb_key.startswith("route_"):
+            route_id = fb_key.replace("route_", "")
+            analyse = get_analyse_for_route(route_id)
+            all_fb.append({
+                "Route": route_id,
+                "💬 Feedback DSP": str(fb_text).strip(),
+                "🔍 Analyse": analyse
+            })
+    if all_fb:
+        st.dataframe(pd.DataFrame(all_fb), use_container_width=True, hide_index=True)
+    else:
+        st.info("Aucun feedback saisi.")
+
+# FOOTER
+st.markdown("---")
+st.markdown(
+    "<center><small>DLP2 - Suivi Ops Journalier | "
+    "Développé pour l'équipe PM DLP2</small></center>",
+    unsafe_allow_html=True
+)
+
+
