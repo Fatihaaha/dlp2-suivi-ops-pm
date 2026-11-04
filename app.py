@@ -56,6 +56,7 @@ st.markdown("""
 st.sidebar.header("📁 Charger les extracts")
 file_routes = st.sidebar.file_uploader("1. Extract ROUTES (CSV)", type=["csv"], key="routes")
 file_packages = st.sidebar.file_uploader("2. Extract PACKAGES (CSV)", type=["csv"], key="packages")
+file_itineraires = st.sidebar.file_uploader("3. Extract ITINÉRAIRES (CSV)", type=["csv"], key="itineraires")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Config Slack")
@@ -136,6 +137,13 @@ try:
     packages = pd.read_csv(file_packages, encoding="latin-1")
 except Exception:
     packages = pd.read_csv(file_packages, encoding="utf-8")
+    itineraires = None
+if file_itineraires is not None:
+    try:
+        itineraires = pd.read_csv(file_itineraires, encoding="latin-1")
+except Exception:
+    itineraires = pd.read_csv(file_itineraires, encoding="utf-8")
+    itineraires.columns = itineraires.columns.str.strip()
 
 routes.columns = routes.columns.str.strip()
 packages.columns = packages.columns.str.strip()
@@ -376,6 +384,56 @@ for idx, dsp in enumerate(dsps):
                 st.dataframe(dog_detail, use_container_width=True, hide_index=True)
             else:
                 st.success("✅ Aucun retour Unsafe due to Dog")
+        # ITINÉRAIRES
+        if itineraires is not None:
+            st.markdown("---")
+            st.markdown("### 🗺️ Itinéraires détaillés")
+            dsp_itin = itineraires[itineraires["DSP"] == dsp].copy()
+            if not dsp_itin.empty:
+                cols_display = [
+                    "Code de la route", "État d'avancement",
+                    "Type de service de livraison",
+                    "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés",
+                    "nombre total de colis", "livraisons au total",
+                    "cortex_avg_pace_stops_per_hour",
+                    "Heure de départ prévue", "Départ réel",
+                    "Retour prévu à la station",
+                    "durée prévue des heures supplémentaires (minutes)",
+                    "% restant de la batterie du véhicule électrique"
+                ]
+                cols_exist = [c for c in cols_display if c in dsp_itin.columns]
+                dsp_itin_display = dsp_itin[cols_exist].copy()
+                dsp_itin_display.columns = [
+                    c.replace("cortex_avg_pace_stops_per_hour", "Pace (arrêts/h)")
+                    .replace("durée prévue des heures supplémentaires (minutes)", "OT prévu (min)")
+                    .replace("% restant de la batterie du véhicule électrique", "🔋 Batterie")
+                    .replace("nombre total de colis", "Colis")
+                    .replace("Type de service de livraison", "Type")
+                    .replace("Code de la route", "Route")
+                    .replace("État d'avancement", "Statut")
+                    .replace("Tous les arrêts", "Arrêts")
+                    .replace("Arrêts effectués", "Effectués")
+                    .replace("arrêts non démarrés", "Restants")
+                    .replace("livraisons au total", "Livraisons")
+                    .replace("Heure de départ prévue", "Départ prévu")
+                    .replace("Départ réel", "Départ réel")
+                    .replace("Retour prévu à la station", "Retour prévu")
+                    for c in cols_exist
+                ]
+                behind_itin = dsp_itin_display[dsp_itin_display["Statut"] == "BEHIND"]
+                atrisk_itin = dsp_itin_display[dsp_itin_display["Statut"] == "AT_RISK"]
+                other_itin = dsp_itin_display[~dsp_itin_display["Statut"].isin(["BEHIND", "AT_RISK"])]
+                if not behind_itin.empty:
+                    st.markdown(f'<span class="behind-badge">🔴 BEHIND — {len(behind_itin)} routes</span>', unsafe_allow_html=True)
+                    st.dataframe(behind_itin, use_container_width=True, hide_index=True)
+                if not atrisk_itin.empty:
+                    st.markdown(f'<span class="atrisk-badge">🟠 AT_RISK — {len(atrisk_itin)} routes</span>', unsafe_allow_html=True)
+                    st.dataframe(atrisk_itin, use_container_width=True, hide_index=True)
+                if not other_itin.empty:
+                    with st.expander(f"📋 Autres routes ({len(other_itin)}) — ON_TIME, AHEAD, COMPLETE, NA"):
+                        st.dataframe(other_itin, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucun itinéraire pour ce DSP")
 
         # MESSAGE SLACK
         st.markdown("---")
