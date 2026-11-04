@@ -370,38 +370,33 @@ for idx, dsp in enumerate(dsps):
                 st.info("Aucun retour")
         else:
             st.info("Aucun retour")
-        # ============================================
+              # ============================================
         # BAD WEATHER & UNSAFE DUE TO DOG
         # ============================================
-        dsp_codes = dsp_routes["Code de la route"].unique()
-        dsp_pkg = packages[packages["RouteCode"].isin(dsp_codes)]
-
         if not dsp_pkg.empty:
-            # BAD WEATHER
             bad_weather = dsp_pkg[dsp_pkg["ReasonCode"].str.lower().str.contains("bad weather", na=False)]
-        st.markdown("---")
-        st.markdown("### ⛈️ Bad Weather")
+            st.markdown("---")
+            st.markdown("### ⛈️ Bad Weather")
             if not bad_weather.empty:
-        st.markdown(f'<span style="background-color:#1565C0;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">⛈️ {len(bad_weather)} colis — {bad_weather["RouteCode"].nunique()} routes</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="background-color:#1565C0;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">⛈️ {len(bad_weather)} colis — {bad_weather["RouteCode"].nunique()} routes</span>', unsafe_allow_html=True)
                 bw_detail = bad_weather[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
                 bw_detail.insert(1, "Type", bw_detail["RouteCode"].map(drt))
                 bw_detail.columns = ["Route", "Type", "Tracking", "Adresse", "Raison"]
                 st.dataframe(bw_detail, use_container_width=True, hide_index=True)
             else:
                 st.success("✅ Aucun retour Bad Weather")
-
-            # UNSAFE DUE TO DOG
             unsafe_dog = dsp_pkg[dsp_pkg["ReasonCode"].str.lower().str.contains("unsafe due to dog", na=False)]
-         st.markdown("---")
-         st.markdown("### 🐕 Unsafe due to Dog")
+            st.markdown("---")
+            st.markdown("### 🐕 Unsafe due to Dog")
             if not unsafe_dog.empty:
-         st.markdown(f'<span style="background-color:#C62828;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">🐕 {len(unsafe_dog)} colis — {unsafe_dog["RouteCode"].nunique()} routes</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="background-color:#C62828;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">🐕 {len(unsafe_dog)} colis — {unsafe_dog["RouteCode"].nunique()} routes</span>', unsafe_allow_html=True)
                 dog_detail = unsafe_dog[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
                 dog_detail.insert(1, "Type", dog_detail["RouteCode"].map(drt))
                 dog_detail.columns = ["Route", "Type", "Tracking", "Adresse", "Raison"]
                 st.dataframe(dog_detail, use_container_width=True, hide_index=True)
             else:
                 st.success("✅ Aucun retour Unsafe due to Dog")
+
 
         st.markdown("---")
         st.markdown("### 💬 Message Slack")
