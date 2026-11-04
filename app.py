@@ -137,12 +137,12 @@ try:
     packages = pd.read_csv(file_packages, encoding="latin-1")
 except Exception:
     packages = pd.read_csv(file_packages, encoding="utf-8")
-    itineraires = None
+   itineraires = None
 if file_itineraires is not None:
     try:
         itineraires = pd.read_csv(file_itineraires, encoding="latin-1")
-except Exception:
-    itineraires = pd.read_csv(file_itineraires, encoding="utf-8")
+    except Exception:
+        itineraires = pd.read_csv(file_itineraires, encoding="utf-8")
     itineraires.columns = itineraires.columns.str.strip()
 
 routes.columns = routes.columns.str.strip()
