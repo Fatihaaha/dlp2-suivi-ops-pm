@@ -182,20 +182,23 @@ with tabs[0]:
     st.markdown('<div class="sync-info">🔄 Feedbacks et analyses se synchronisent automatiquement.</div>', unsafe_allow_html=True)
     st.markdown("")
 
-    st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
+       st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
     if not behind.empty:
         db = behind[["Code de la route", "DSP", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
         db.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
-        afficher_tableau_avec_feedback(db, "global_behind", sync_to_global=True)
+        db["💬 Feedback DSP"] = db["Route"].apply(get_feedback_for_route)
+        db["🔍 Analyse"] = db["Route"].apply(get_analyse_for_route)
+        st.dataframe(db, use_container_width=True, hide_index=True)
     else:
         st.success("✅ Aucune route en retard")
 
-    st.markdown("---")
-    st.markdown('<span class="atrisk-badge">ROUTES A RISQUE (AT_RISK)</span>', unsafe_allow_html=True)
+       st.markdown('<span class="atrisk-badge">ROUTES A RISQUE (AT_RISK)</span>', unsafe_allow_html=True)
     if not atrisk.empty:
         da = atrisk[["Code de la route", "DSP", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
         da.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
-        afficher_tableau_avec_feedback(da, "global_atrisk", sync_to_global=True)
+        da["💬 Feedback DSP"] = da["Route"].apply(get_feedback_for_route)
+        da["🔍 Analyse"] = da["Route"].apply(get_analyse_for_route)
+        st.dataframe(da, use_container_width=True, hide_index=True)
     else:
         st.success("✅ Aucune route à risque")
 
@@ -216,7 +219,10 @@ with tabs[0]:
                 tk += cnt
             rd["Autres"] = r["retours"] - tk
             rows.append(rd)
-        afficher_tableau_avec_feedback(pd.DataFrame(rows), "global_retours", sync_to_global=True)
+        ret_df = pd.DataFrame(rows)
+        ret_df["💬 Feedback DSP"] = ret_df["Route"].apply(get_feedback_for_route)
+        ret_df["🔍 Analyse"] = ret_df["Route"].apply(get_analyse_for_route)
+        st.dataframe(ret_df, use_container_width=True, hide_index=True)
     else:
         st.success("✅ Aucune route avec 10+ retours")
 
