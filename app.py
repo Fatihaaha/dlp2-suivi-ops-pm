@@ -182,7 +182,7 @@ with tabs[0]:
     st.markdown('<div class="sync-info">🔄 Feedbacks et analyses se synchronisent automatiquement.</div>', unsafe_allow_html=True)
     st.markdown("")
 
-       st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
+    st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
     if not behind.empty:
         db = behind[["Code de la route", "DSP", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
         db.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
