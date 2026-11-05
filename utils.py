@@ -109,23 +109,21 @@ def get_all_manual_retours():
             all_ret.append(item)
     return all_ret
 
-
 def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
     df = df.copy()
-    df["💬 Feedback DSP"] = ""
-    df["🔍 Analyse de la route"] = ""
 
+    # Pré-remplir avec les feedbacks existants
+    fb_col = []
+    an_col = []
     for idx, row in df.iterrows():
         route_id = str(row.get("Route", ""))
         if not route_id or route_id == "nan":
             route_id = str(idx)
+        fb_col.append(get_feedback_for_route(route_id))
+        an_col.append(get_analyse_for_route(route_id))
 
-        fb = get_feedback_for_route(route_id)
-        if fb:
-            df.at[idx, "💬 Feedback DSP"] = fb
-        an = get_analyse_for_route(route_id)
-        if an:
-            df.at[idx, "🔍 Analyse de la route"] = an
+    df["💬 Feedback DSP"] = fb_col
+    df["🔍 Analyse de la route"] = an_col
 
     edited = st.data_editor(
         df,
@@ -148,25 +146,26 @@ def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
         key=f"editor_{section_key}"
     )
 
+    # Sauvegarder TOUS les feedbacks (pas seulement les modifiés)
     for idx, row in edited.iterrows():
-        route_id = str(row.get("Route", idx))
-        fb_key = f"{section_key}_{route_id}"
-        feedback = row.get("💬 Feedback DSP", "")
-        if feedback and str(feedback).strip():
-            feedback_clean = str(feedback).strip()
-            st.session_state.dsp_feedbacks[fb_key] = feedback_clean
-            st.session_state.dsp_feedbacks[f"route_{route_id}"] = feedback_clean
-        else:
-            st.session_state.dsp_feedbacks.pop(fb_key, None)
-        analyse = row.get("🔍 Analyse de la route", "")
-        if analyse and str(analyse).strip():
-            analyse_clean = str(analyse).strip()
-            st.session_state.dsp_analyses[fb_key] = analyse_clean
-            st.session_state.dsp_analyses[f"route_{route_id}"] = analyse_clean
-        else:
-            st.session_state.dsp_analyses.pop(fb_key, None)
+        route_id = str(row.get("Route", ""))
+        if not route_id or route_id == "nan":
+            route_id = str(idx)
+
+        feedback = str(row.get("💬 Feedback DSP", "")).strip()
+        analyse = str(row.get("🔍 Analyse de la route", "")).strip()
+
+        # Toujours mettre à jour la clé globale
+        if feedback:
+            st.session_state.dsp_feedbacks[f"route_{route_id}"] = feedback
+            st.session_state.dsp_feedbacks[f"{section_key}_{route_id}"] = feedback
+
+        if analyse:
+            st.session_state.dsp_analyses[f"route_{route_id}"] = analyse
+            st.session_state.dsp_analyses[f"{section_key}_{route_id}"] = analyse
 
     return edited
+
 
 
 def afficher_section_na(section_key, dsp_name=""):
