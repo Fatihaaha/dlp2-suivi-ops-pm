@@ -66,21 +66,30 @@ def count_reason(packages_df, route_code, reason):
 
 
 def get_feedback_for_route(route_code):
+    # Priorité 1 : clé globale (toujours la plus récente)
+    global_key = f"route_{route_code}"
+    if global_key in st.session_state.dsp_feedbacks:
+        val = str(st.session_state.dsp_feedbacks[global_key]).strip()
+        if val:
+            return val
+    # Priorité 2 : chercher dans toutes les clés
     best = ""
     for fb_key, fb_text in st.session_state.dsp_feedbacks.items():
         if route_code in fb_key and fb_text and str(fb_text).strip():
-            if fb_key == f"route_{route_code}":
-                return str(fb_text).strip()
             best = str(fb_text).strip()
     return best
 
 
+
 def get_analyse_for_route(route_code):
+    global_key = f"route_{route_code}"
+    if global_key in st.session_state.dsp_analyses:
+        val = str(st.session_state.dsp_analyses[global_key]).strip()
+        if val:
+            return val
     best = ""
     for a_key, a_text in st.session_state.dsp_analyses.items():
         if route_code in a_key and a_text and str(a_text).strip():
-            if a_key == f"route_{route_code}":
-                return str(a_text).strip()
             best = str(a_text).strip()
     return best
 
@@ -107,7 +116,10 @@ def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
     df["🔍 Analyse de la route"] = ""
 
     for idx, row in df.iterrows():
-        route_id = str(row.get("Route", idx))
+        route_id = str(row.get("Route", ""))
+        if not route_id or route_id == "nan":
+            route_id = str(idx)
+
         fb = get_feedback_for_route(route_id)
         if fb:
             df.at[idx, "💬 Feedback DSP"] = fb
