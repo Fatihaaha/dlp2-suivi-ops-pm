@@ -485,6 +485,16 @@ with tabs[-1]:
         st.dataframe(pd.DataFrame(all_fb), use_container_width=True, hide_index=True)
     else:
         st.info("Aucun feedback saisi.")
+# SAUVEGARDE AUTOMATIQUE
+auto_save = {
+    "feedbacks": dict(st.session_state.dsp_feedbacks),
+    "analyses": dict(st.session_state.dsp_analyses),
+    "routes_na": {k: v for k, v in st.session_state.routes_na.items()},
+    "routes_retours_manual": {k: v for k, v in st.session_state.routes_retours_manual.items()},
+    "sent_messages": dict(st.session_state.sent_messages),
+    "saved_at": datetime.now().strftime("%d/%m/%Y %H:%M")
+}
+st.session_state.saved_feedbacks = auto_save
 
 # FOOTER
 st.markdown("---")
