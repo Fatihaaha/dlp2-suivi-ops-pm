@@ -188,9 +188,13 @@ with tabs[0]:
         db.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
         db["💬 Feedback DSP"] = db["Route"].apply(get_feedback_for_route)
         db["🔍 Analyse"] = db["Route"].apply(get_analyse_for_route)
-        st.dataframe(db, use_container_width=True, hide_index=True)
+        for dsp_name in sorted(db["DSP"].unique()):
+            dsp_df = db[db["DSP"] == dsp_name]
+            st.markdown(f"**🏢 {dsp_name}** ({len(dsp_df)} routes)")
+            st.dataframe(dsp_df, use_container_width=True, hide_index=True)
     else:
         st.success("✅ Aucune route en retard")
+
 
     st.markdown('<span class="atrisk-badge">ROUTES A RISQUE (AT_RISK)</span>', unsafe_allow_html=True)
     if not atrisk.empty:
@@ -198,9 +202,13 @@ with tabs[0]:
         da.columns = ["Route", "DSP", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
         da["💬 Feedback DSP"] = da["Route"].apply(get_feedback_for_route)
         da["🔍 Analyse"] = da["Route"].apply(get_analyse_for_route)
-        st.dataframe(da, use_container_width=True, hide_index=True)
+        for dsp_name in sorted(da["DSP"].unique()):
+            dsp_df = da[da["DSP"] == dsp_name]
+            st.markdown(f"**🏢 {dsp_name}** ({len(dsp_df)} routes)")
+            st.dataframe(dsp_df, use_container_width=True, hide_index=True)
     else:
         st.success("✅ Aucune route à risque")
+
 
     st.markdown("---")
     st.markdown('<span class="retour-badge">ROUTES AVEC 10+ RETOURS</span>', unsafe_allow_html=True)
@@ -222,9 +230,11 @@ with tabs[0]:
         ret_df = pd.DataFrame(rows)
         ret_df["💬 Feedback DSP"] = ret_df["Route"].apply(get_feedback_for_route)
         ret_df["🔍 Analyse"] = ret_df["Route"].apply(get_analyse_for_route)
-        st.dataframe(ret_df, use_container_width=True, hide_index=True)
-    else:
-        st.success("✅ Aucune route avec 10+ retours")
+        for dsp_name in sorted(ret_df["DSP"].unique()):
+            dsp_df = ret_df[ret_df["DSP"] == dsp_name]
+            st.markdown(f"**🏢 {dsp_name}** ({len(dsp_df)} routes)")
+            st.dataframe(dsp_df, use_container_width=True, hide_index=True)
+
 
     st.markdown("---")
     st.markdown('<span class="na-badge">ROUTES NA (NON TENTÉS)</span>', unsafe_allow_html=True)
@@ -239,6 +249,37 @@ with tabs[0]:
         st.markdown("---")
         st.markdown('<span class="retour-badge">ROUTES 10+ RETOURS (AJOUTÉES MANUELLEMENT)</span>', unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(all_mr), use_container_width=True, hide_index=True)
+    st.markdown("---")
+    st.markdown("### ⛈️ Bad Weather & 🐕 Unsafe due to Dog")
+    bad_weather_all = packages[packages["ReasonCode"].str.lower().str.contains("bad weather", na=False)]
+    unsafe_dog_all = packages[packages["ReasonCode"].str.lower().str.contains("unsafe due to dog", na=False)]
+
+    if not bad_weather_all.empty:
+        st.markdown(f'<span style="background-color:#1565C0;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">⛈️ Bad Weather — {len(bad_weather_all)} colis</span>', unsafe_allow_html=True)
+        bw_all = bad_weather_all[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
+        bw_all.insert(1, "Type", bw_all["RouteCode"].map(drt))
+        bw_all.insert(2, "DSP", bw_all["RouteCode"].map(dict(zip(routes["Code de la route"], routes["DSP"]))))
+        bw_all.columns = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
+        for dsp_name in sorted(bw_all["DSP"].dropna().unique()):
+            dsp_bw = bw_all[bw_all["DSP"] == dsp_name]
+            st.markdown(f"**🏢 {dsp_name}** ({len(dsp_bw)} colis)")
+            st.dataframe(dsp_bw, use_container_width=True, hide_index=True)
+    else:
+        st.success("✅ Aucun retour Bad Weather")
+
+    st.markdown("")
+    if not unsafe_dog_all.empty:
+        st.markdown(f'<span style="background-color:#C62828;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">🐕 Unsafe due to Dog — {len(unsafe_dog_all)} colis</span>', unsafe_allow_html=True)
+        dog_all = unsafe_dog_all[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
+        dog_all.insert(1, "Type", dog_all["RouteCode"].map(drt))
+        dog_all.insert(2, "DSP", dog_all["RouteCode"].map(dict(zip(routes["Code de la route"], routes["DSP"]))))
+        dog_all.columns = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
+        for dsp_name in sorted(dog_all["DSP"].dropna().unique()):
+            dsp_dog = dog_all[dog_all["DSP"] == dsp_name]
+            st.markdown(f"**🏢 {dsp_name}** ({len(dsp_dog)} colis)")
+            st.dataframe(dsp_dog, use_container_width=True, hide_index=True)
+    else:
+        st.success("✅ Aucun retour Unsafe due to Dog")
 
     st.markdown("---")
     st.markdown("### 📋 Bilan par DSP")
