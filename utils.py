@@ -714,29 +714,23 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 wd.cell(row=row, column=1).value = "✅ RAS pour ce DSP"
                 wd.cell(row=row, column=1).font = Font(bold=True, color="008000", size=11)
 
-            auto_w(wd, 9)
-    # FEUILLE BAD WEATHER & UNSAFE DUE TO DOG
-    ws_bw = wb.create_sheet("⛈️🐕 Bad Weather & Dog")
-
-    # En-tête
+            auto_w(wd, 9)# FEUILLE BAD WEATHER & UNSAFE DUE TO DOG
+    ws_bw = wb.create_sheet("Bad Weather et Dog")
     headers_bw = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
     for col_idx, h in enumerate(headers_bw, 1):
         cell = ws_bw.cell(row=1, column=col_idx, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill(start_color="003366", end_color="003366", fill_type="solid")
         cell.alignment = Alignment(horizontal="center")
-
     route_to_dsp = dict(zip(routes["Code de la route"], routes["DSP"]))
     current_row = 2
-
-    # Bad Weather
     bad_weather_all = packages[packages["ReasonCode"].str.lower().str.contains("bad weather", na=False)]
     if not bad_weather_all.empty:
-        ws_bw.cell(row=current_row, column=1, value="⛈️ BAD WEATHER")
+        ws_bw.cell(row=current_row, column=1, value="BAD WEATHER")
         ws_bw.cell(row=current_row, column=1).font = Font(bold=True, size=12, color="1565C0")
         current_row += 1
         for dsp_name in sorted(bad_weather_all["RouteCode"].map(route_to_dsp).dropna().unique()):
-            ws_bw.cell(row=current_row, column=1, value=f"🏢 {dsp_name}")
+            ws_bw.cell(row=current_row, column=1, value=dsp_name)
             ws_bw.cell(row=current_row, column=1).font = Font(bold=True)
             current_row += 1
             dsp_bw = bad_weather_all[bad_weather_all["RouteCode"].map(route_to_dsp) == dsp_name]
@@ -751,15 +745,13 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                     ws_bw.cell(row=current_row, column=c).fill = PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid")
                 current_row += 1
         current_row += 1
-
-    # Unsafe due to Dog
     unsafe_dog_all = packages[packages["ReasonCode"].str.lower().str.contains("unsafe due to dog", na=False)]
     if not unsafe_dog_all.empty:
-        ws_bw.cell(row=current_row, column=1, value="🐕 UNSAFE DUE TO DOG")
+        ws_bw.cell(row=current_row, column=1, value="UNSAFE DUE TO DOG")
         ws_bw.cell(row=current_row, column=1).font = Font(bold=True, size=12, color="C62828")
         current_row += 1
         for dsp_name in sorted(unsafe_dog_all["RouteCode"].map(route_to_dsp).dropna().unique()):
-            ws_bw.cell(row=current_row, column=1, value=f"🏢 {dsp_name}")
+            ws_bw.cell(row=current_row, column=1, value=dsp_name)
             ws_bw.cell(row=current_row, column=1).font = Font(bold=True)
             current_row += 1
             dsp_dog = unsafe_dog_all[unsafe_dog_all["RouteCode"].map(route_to_dsp) == dsp_name]
@@ -773,14 +765,13 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 for c in range(1, 7):
                     ws_bw.cell(row=current_row, column=c).fill = PatternFill(start_color="FFEBEE", end_color="FFEBEE", fill_type="solid")
                 current_row += 1
-
-    # Ajuster largeur colonnes
     ws_bw.column_dimensions["A"].width = 15
     ws_bw.column_dimensions["B"].width = 12
     ws_bw.column_dimensions["C"].width = 25
     ws_bw.column_dimensions["D"].width = 25
     ws_bw.column_dimensions["E"].width = 40
     ws_bw.column_dimensions["F"].width = 25
+
 
     output.seek(0)
     return output
