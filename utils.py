@@ -66,20 +66,16 @@ def count_reason(packages_df, route_code, reason):
 
 
 def get_feedback_for_route(route_code):
-    # Priorité 1 : clé globale (toujours la plus récente)
     global_key = f"route_{route_code}"
     if global_key in st.session_state.dsp_feedbacks:
         val = str(st.session_state.dsp_feedbacks[global_key]).strip()
         if val:
             return val
-    # Priorité 2 : chercher dans toutes les clés
     best = ""
     for fb_key, fb_text in st.session_state.dsp_feedbacks.items():
-        if route_code in fb_key and fb_text and str(fb_text).strip():
+        if fb_key.endswith(f"_{route_code}") and fb_text and str(fb_text).strip():
             best = str(fb_text).strip()
     return best
-
-
 
 def get_analyse_for_route(route_code):
     global_key = f"route_{route_code}"
@@ -89,10 +85,9 @@ def get_analyse_for_route(route_code):
             return val
     best = ""
     for a_key, a_text in st.session_state.dsp_analyses.items():
-        if route_code in a_key and a_text and str(a_text).strip():
+        if a_key.endswith(f"_{route_code}") and a_text and str(a_text).strip():
             best = str(a_text).strip()
     return best
-
 
 def get_all_na_routes():
     all_na = []
@@ -472,7 +467,7 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=c).value = h
             apply_header(ws, row, len(hd), fill_behind_hdr)
             row += 1
-            for _, r in behind.iterrows():
+            for _, r in behind.sort_values("DSP").iterrows():
                 rc = r["Code de la route"]
                 vals = [rc, r["DSP"], drt.get(rc, "-"), r.get("Tous les arrêts", ""),
                         r.get("Arrêts effectués", ""), r.get("arrêts non démarrés", ""),
@@ -495,7 +490,7 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=c).value = h
             apply_header(ws, row, len(hd), fill_atrisk_hdr)
             row += 1
-            for _, r in atrisk.iterrows():
+            for _, r in atrisk.sort_values("DSP").iterrows():
                 rc = r["Code de la route"]
                 vals = [rc, r["DSP"], drt.get(rc, "-"), r.get("Tous les arrêts", ""),
                         r.get("Arrêts effectués", ""), r.get("arrêts non démarrés", ""),
@@ -520,7 +515,7 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=c).value = h
             apply_header(ws, row, len(hd), fill_retour_hdr)
             row += 1
-            for _, r in retours10.iterrows():
+            for _, r in retours10.sort_values("DSP").iterrows():
                 rc = r["Code de la route"]
                 ws.cell(row=row, column=1).value = rc
                 ws.cell(row=row, column=2).value = r["DSP"]
@@ -720,6 +715,72 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 wd.cell(row=row, column=1).font = Font(bold=True, color="008000", size=11)
 
             auto_w(wd, 9)
+    # FEUILLE BAD WEATHER & UNSAFE DUE TO DOG
+    ws_bw = wb.create_sheet("⛈️🐕 Bad Weather & Dog")
+
+    # En-tête
+    headers_bw = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
+    for col_idx, h in enumerate(headers_bw, 1):
+        cell = ws_bw.cell(row=1, column=col_idx, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="003366", end_color="003366", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center")
+
+    route_to_dsp = dict(zip(routes["Code de la route"], routes["DSP"]))
+    current_row = 2
+
+    # Bad Weather
+    bad_weather_all = packages[packages["ReasonCode"].str.lower().str.contains("bad weather", na=False)]
+    if not bad_weather_all.empty:
+        ws_bw.cell(row=current_row, column=1, value="⛈️ BAD WEATHER")
+        ws_bw.cell(row=current_row, column=1).font = Font(bold=True, size=12, color="1565C0")
+        current_row += 1
+        for dsp_name in sorted(bad_weather_all["RouteCode"].map(route_to_dsp).dropna().unique()):
+            ws_bw.cell(row=current_row, column=1, value=f"🏢 {dsp_name}")
+            ws_bw.cell(row=current_row, column=1).font = Font(bold=True)
+            current_row += 1
+            dsp_bw = bad_weather_all[bad_weather_all["RouteCode"].map(route_to_dsp) == dsp_name]
+            for _, pkg in dsp_bw.iterrows():
+                ws_bw.cell(row=current_row, column=1, value=pkg.get("RouteCode", ""))
+                ws_bw.cell(row=current_row, column=2, value=drt.get(pkg.get("RouteCode", ""), ""))
+                ws_bw.cell(row=current_row, column=3, value=dsp_name)
+                ws_bw.cell(row=current_row, column=4, value=pkg.get("ScannableId", ""))
+                ws_bw.cell(row=current_row, column=5, value=pkg.get("Address", ""))
+                ws_bw.cell(row=current_row, column=6, value=pkg.get("ReasonCode", ""))
+                for c in range(1, 7):
+                    ws_bw.cell(row=current_row, column=c).fill = PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid")
+                current_row += 1
+        current_row += 1
+
+    # Unsafe due to Dog
+    unsafe_dog_all = packages[packages["ReasonCode"].str.lower().str.contains("unsafe due to dog", na=False)]
+    if not unsafe_dog_all.empty:
+        ws_bw.cell(row=current_row, column=1, value="🐕 UNSAFE DUE TO DOG")
+        ws_bw.cell(row=current_row, column=1).font = Font(bold=True, size=12, color="C62828")
+        current_row += 1
+        for dsp_name in sorted(unsafe_dog_all["RouteCode"].map(route_to_dsp).dropna().unique()):
+            ws_bw.cell(row=current_row, column=1, value=f"🏢 {dsp_name}")
+            ws_bw.cell(row=current_row, column=1).font = Font(bold=True)
+            current_row += 1
+            dsp_dog = unsafe_dog_all[unsafe_dog_all["RouteCode"].map(route_to_dsp) == dsp_name]
+            for _, pkg in dsp_dog.iterrows():
+                ws_bw.cell(row=current_row, column=1, value=pkg.get("RouteCode", ""))
+                ws_bw.cell(row=current_row, column=2, value=drt.get(pkg.get("RouteCode", ""), ""))
+                ws_bw.cell(row=current_row, column=3, value=dsp_name)
+                ws_bw.cell(row=current_row, column=4, value=pkg.get("ScannableId", ""))
+                ws_bw.cell(row=current_row, column=5, value=pkg.get("Address", ""))
+                ws_bw.cell(row=current_row, column=6, value=pkg.get("ReasonCode", ""))
+                for c in range(1, 7):
+                    ws_bw.cell(row=current_row, column=c).fill = PatternFill(start_color="FFEBEE", end_color="FFEBEE", fill_type="solid")
+                current_row += 1
+
+    # Ajuster largeur colonnes
+    ws_bw.column_dimensions["A"].width = 15
+    ws_bw.column_dimensions["B"].width = 12
+    ws_bw.column_dimensions["C"].width = 25
+    ws_bw.column_dimensions["D"].width = 25
+    ws_bw.column_dimensions["E"].width = 40
+    ws_bw.column_dimensions["F"].width = 25
 
     output.seek(0)
     return output
