@@ -714,7 +714,9 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 wd.cell(row=row, column=1).value = "✅ RAS pour ce DSP"
                 wd.cell(row=row, column=1).font = Font(bold=True, color="008000", size=11)
 
-            auto_w(wd, 9)# FEUILLE BAD WEATHER & UNSAFE DUE TO DOG
+            auto_w(wd, 9)
+            
+    # FEUILLE BAD WEATHER & UNSAFE DUE TO DOG     
     ws_bw = wb.create_sheet("Bad Weather et Dog")
     headers_bw = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
     for col_idx, h in enumerate(headers_bw, 1):
