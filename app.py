@@ -173,7 +173,7 @@ with c6: st.metric("🏢 DSP", len(dsps))
 # ============================================
 # ONGLETS
 # ============================================
-tab_names = ["📊 Résumé Global"] + [f"🏢 {d}" for d in dsps] + ["📝 Feedbacks"]
+tab_names = ["📊 Résumé Global"] + [f"🏢 {d}" for d in dsps]
 tabs = st.tabs(tab_names)
 
 # RÉSUMÉ GLOBAL
@@ -509,23 +509,6 @@ for idx, dsp in enumerate(dsps):
             else:
                 st.info("💡 Configurez le webhook Slack pour ce DSP dans la sidebar")
 
-# ONGLET FEEDBACKS
-with tabs[-1]:
-    st.markdown("## 📝 Tous les Feedbacks")
-    all_fb = []
-    for fb_key, fb_text in st.session_state.dsp_feedbacks.items():
-        if fb_text and str(fb_text).strip() and fb_key.startswith("route_"):
-            route_id = fb_key.replace("route_", "")
-            analyse = get_analyse_for_route(route_id)
-            all_fb.append({
-                "Route": route_id,
-                "💬 Feedback DSP": str(fb_text).strip(),
-                "🔍 Analyse": analyse
-            })
-    if all_fb:
-        st.dataframe(pd.DataFrame(all_fb), use_container_width=True, hide_index=True)
-    else:
-        st.info("Aucun feedback saisi.")
 # SAUVEGARDE AUTOMATIQUE
 auto_save = {
     "feedbacks": dict(st.session_state.dsp_feedbacks),
