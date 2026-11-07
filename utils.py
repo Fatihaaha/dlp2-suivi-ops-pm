@@ -582,8 +582,6 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
         ws.cell(row=row, column=1).value = f"Généré automatiquement - DLP2 - {now}"
         ws.cell(row=row, column=1).font = Font(italic=True, color="808080", size=9)
         auto_w(ws, 14)
-
-            auto_w(wd, 9)
             
         # FEUILLE BAD WEATHER & UNSAFE DUE TO DOG
         wb = writer.book
