@@ -1,6 +1,5 @@
-
 # ==============================================
-# utils.py - FONCTIONS UTILITAIRES DLP2 v5
+# utils.py - FONCTIONS UTILITAIRES DLP2 v6 (données partagées)
 # ==============================================
 
 import streamlit as st
@@ -8,9 +7,118 @@ import pandas as pd
 import requests
 import json
 import io
+import os
 from datetime import datetime
 
 
+# ==============================================
+# STOCKAGE PARTAGÉ (commun à tous les utilisateurs)
+# ==============================================
+DATA_DIR = "donnees_partagees"
+os.makedirs(DATA_DIR, exist_ok=True)
+ETAT_FILE = os.path.join(DATA_DIR, "etat.json")
+META_FILE = os.path.join(DATA_DIR, "meta.json")
+FICHIERS = {"routes": "routes.csv", "packages": "packages.csv", "itineraires": "itineraires.csv"}
+CLES_ETAT = {
+    "feedbacks": "dsp_feedbacks",
+    "analyses": "dsp_analyses",
+    "routes_na": "routes_na",
+    "routes_retours_manual": "routes_retours_manual",
+    "sent_messages": "sent_messages",
+}
+
+
+def _json_default(o):
+    # Convertit les types numpy (int64, float64...) en types Python
+    if hasattr(o, "item"):
+        return o.item()
+    return str(o)
+
+
+def chemin(nom):
+    return os.path.join(DATA_DIR, FICHIERS[nom])
+
+
+def lire_json(path):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def ecrire_json(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
+    os.replace(tmp, path)  # écriture atomique
+
+
+def enregistrer_upload(fichier, nom):
+    """Écrit le CSV uploadé sur le serveur (une seule fois par nouveau fichier)."""
+    if fichier is None:
+        return
+    signature = f"{fichier.name}_{fichier.size}"
+    if st.session_state.get(f"sig_{nom}") == signature:
+        return
+    with open(chemin(nom), "wb") as f:
+        f.write(fichier.getvalue())
+    st.session_state[f"sig_{nom}"] = signature
+    meta = lire_json(META_FILE)
+    meta[nom] = {"fichier": fichier.name, "date": datetime.now().strftime("%d/%m/%Y %H:%M")}
+    ecrire_json(META_FILE, meta)
+
+
+def lire_csv(nom):
+    p = chemin(nom)
+    if not os.path.exists(p):
+        return None
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            df = pd.read_csv(p, encoding=enc)
+            df.columns = df.columns.str.strip()
+            return df
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def charger_etat_partage():
+    """Le fichier commun fait foi : on le recharge à chaque action."""
+    etat = lire_json(ETAT_FILE)
+    for cle_json, cle_session in CLES_ETAT.items():
+        st.session_state[cle_session] = dict(etat.get(cle_json, {}))
+    st.session_state.etat_saved_at = etat.get("saved_at", "")
+
+
+def sauvegarder_etat_partage():
+    """Réécrit le fichier commun avec l'état à jour."""
+    etat = {cle_json: dict(st.session_state[cle_session])
+            for cle_json, cle_session in CLES_ETAT.items()}
+    etat["saved_at"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ecrire_json(ETAT_FILE, etat)
+
+
+def reinitialiser_tout():
+    """Nouvelle journée : efface extracts + feedbacks pour tout le monde."""
+    for f in os.listdir(DATA_DIR):
+        try:
+            os.remove(os.path.join(DATA_DIR, f))
+        except Exception:
+            pass
+    for cle_session in CLES_ETAT.values():
+        st.session_state[cle_session] = {}
+    for nom in FICHIERS:
+        st.session_state.pop(f"sig_{nom}", None)
+    for k in [k for k in st.session_state.keys() if str(k).startswith("editor_")]:
+        del st.session_state[k]
+
+
+# ==============================================
+# FONCTIONS MÉTIER
+# ==============================================
 def envoyer_slack(webhook_url, message):
     try:
         payload = {"text": message}
@@ -77,6 +185,7 @@ def get_feedback_for_route(route_code):
             best = str(fb_text).strip()
     return best
 
+
 def get_analyse_for_route(route_code):
     global_key = f"route_{route_code}"
     if global_key in st.session_state.dsp_analyses:
@@ -88,6 +197,7 @@ def get_analyse_for_route(route_code):
         if a_key.endswith(f"_{route_code}") and a_text and str(a_text).strip():
             best = str(a_text).strip()
     return best
+
 
 def get_all_na_routes():
     all_na = []
@@ -104,10 +214,10 @@ def get_all_manual_retours():
             all_ret.append(item)
     return all_ret
 
+
 def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
     df = df.copy()
 
-    # Pré-remplir avec les feedbacks existants
     fb_col = []
     an_col = []
     for idx, row in df.iterrows():
@@ -141,26 +251,22 @@ def afficher_tableau_avec_feedback(df, section_key, sync_to_global=False):
         key=f"editor_{section_key}"
     )
 
-    # Sauvegarder TOUS les feedbacks (pas seulement les modifiés)
+    # Enregistre les valeurs, et SUPPRIME celles qui ont été effacées
     for idx, row in edited.iterrows():
         route_id = str(row.get("Route", ""))
         if not route_id or route_id == "nan":
             route_id = str(idx)
-
-        feedback = str(row.get("💬 Feedback DSP", "")).strip()
-        analyse = str(row.get("🔍 Analyse de la route", "")).strip()
-
-        # Toujours mettre à jour la clé globale
-        if feedback:
-            st.session_state.dsp_feedbacks[f"route_{route_id}"] = feedback
-            st.session_state.dsp_feedbacks[f"{section_key}_{route_id}"] = feedback
-
-        if analyse:
-            st.session_state.dsp_analyses[f"route_{route_id}"] = analyse
-            st.session_state.dsp_analyses[f"{section_key}_{route_id}"] = analyse
+        feedback = str(row.get("💬 Feedback DSP", "") or "").strip()
+        analyse = str(row.get("🔍 Analyse de la route", "") or "").strip()
+        for store, val in ((st.session_state.dsp_feedbacks, feedback),
+                           (st.session_state.dsp_analyses, analyse)):
+            for k in (f"route_{route_id}", f"{section_key}_{route_id}"):
+                if val:
+                    store[k] = val
+                else:
+                    store.pop(k, None)
 
     return edited
-
 
 
 def afficher_section_na(section_key, dsp_name=""):
@@ -184,7 +290,7 @@ def afficher_section_na(section_key, dsp_name=""):
             st.session_state.routes_na[na_key].append({
                 "Route": na_route.strip(),
                 "DSP": dsp_name,
-                "Nb non tentés": na_nb,
+                "Nb non tentés": int(na_nb),
                 "💬 Feedback DSP": na_feedback,
                 "🔍 Analyse de la route": na_analyse,
             })
@@ -192,6 +298,8 @@ def afficher_section_na(section_key, dsp_name=""):
                 st.session_state.dsp_feedbacks[f"route_{na_route.strip()}"] = na_feedback.strip()
             if na_analyse.strip():
                 st.session_state.dsp_analyses[f"route_{na_route.strip()}"] = na_analyse.strip()
+            st.session_state.pop(f"editor_na_{section_key}", None)
+            sauvegarder_etat_partage()
             st.success(f"✅ Route NA {na_route} ajoutée !")
             st.rerun()
         else:
@@ -221,6 +329,8 @@ def afficher_section_na(section_key, dsp_name=""):
                 st.session_state.dsp_analyses[f"route_{route_id}"] = str(an).strip()
         if st.button("🗑️ Vider les routes NA", key=f"clear_na_{section_key}"):
             st.session_state.routes_na[na_key] = []
+            st.session_state.pop(f"editor_na_{section_key}", None)
+            sauvegarder_etat_partage()
             st.rerun()
     else:
         st.info("Aucune route NA saisie.")
@@ -249,7 +359,7 @@ def afficher_section_retours_manual(section_key, dsp_name=""):
             st.session_state.routes_retours_manual[ret_key].append({
                 "Route": ret_route.strip(),
                 "DSP": dsp_name,
-                "Retours": ret_nb,
+                "Retours": int(ret_nb),
                 "Raisons": ret_raisons,
                 "💬 Feedback DSP": ret_feedback,
                 "🔍 Analyse de la route": ret_analyse,
@@ -258,6 +368,8 @@ def afficher_section_retours_manual(section_key, dsp_name=""):
                 st.session_state.dsp_feedbacks[f"route_{ret_route.strip()}"] = ret_feedback.strip()
             if ret_analyse.strip():
                 st.session_state.dsp_analyses[f"route_{ret_route.strip()}"] = ret_analyse.strip()
+            st.session_state.pop(f"editor_ret_{section_key}", None)
+            sauvegarder_etat_partage()
             st.success(f"✅ Route {ret_route} ajoutée aux 10+ retours !")
             st.rerun()
         else:
@@ -287,6 +399,8 @@ def afficher_section_retours_manual(section_key, dsp_name=""):
                 st.session_state.dsp_analyses[f"route_{route_id}"] = str(an).strip()
         if st.button("🗑️ Vider les routes 10+", key=f"clear_ret_{section_key}"):
             st.session_state.routes_retours_manual[ret_key] = []
+            st.session_state.pop(f"editor_ret_{section_key}", None)
+            sauvegarder_etat_partage()
             st.rerun()
     else:
         st.info("Aucune route 10+ ajoutée manuellement.")
@@ -578,12 +692,7 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
                 ws.cell(row=row, column=5).fill = fill_analyse
                 row += 1
 
-        row += 2
-        ws.cell(row=row, column=1).value = f"Généré automatiquement - DLP2 - {now}"
-        ws.cell(row=row, column=1).font = Font(italic=True, color="808080", size=9)
-        auto_w(ws, 14)
-            
-        # BAD WEATHER & UNSAFE DUE TO DOG (sur le Résumé Global)
+        # BAD WEATHER & UNSAFE DUE TO DOG
         row += 2
         ws.cell(row=row, column=1).value = "⛈️ BAD WEATHER"
         ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="1565C0")
@@ -651,7 +760,5 @@ def generate_excel_summary(routes, behind, atrisk, retours10, packages, drt, dsp
         ws.cell(row=row, column=1).font = Font(italic=True, color="808080", size=9)
         auto_w(ws, 14)
 
-
     output.seek(0)
     return output
-
