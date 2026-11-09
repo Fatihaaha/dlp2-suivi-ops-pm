@@ -1,6 +1,5 @@
-
 # ==============================================
-# DLP2 - APP STREAMLIT v5 - CORRIGÉE
+# DLP2 - APP STREAMLIT v6 - DONNÉES PARTAGÉES
 # ==============================================
 import streamlit as st
 import pandas as pd
@@ -11,25 +10,27 @@ from utils import (
     get_feedback_for_route, get_analyse_for_route, get_all_na_routes,
     get_all_manual_retours, afficher_tableau_avec_feedback,
     afficher_section_na, afficher_section_retours_manual,
-    build_slack_message, generate_excel_summary
+    build_slack_message, generate_excel_summary,
+    # stockage partagé
+    lire_json, META_FILE, enregistrer_upload, lire_csv,
+    charger_etat_partage, sauvegarder_etat_partage, reinitialiser_tout,
 )
 
 st.set_page_config(page_title="DLP2 - Suivi Ops", page_icon="🚚", layout="wide")
 
-SLACK_WEBHOOKS = {}
+# Webhooks : partagés via .streamlit/secrets.toml (section [webhooks]) si présent
+try:
+    SLACK_WEBHOOKS = dict(st.secrets.get("webhooks", {}))
+except Exception:
+    SLACK_WEBHOOKS = {}
 
-if 'feedbacks' not in st.session_state:
-    st.session_state.feedbacks = {}
-if 'sent_messages' not in st.session_state:
-    st.session_state.sent_messages = {}
-if 'dsp_feedbacks' not in st.session_state:
-    st.session_state.dsp_feedbacks = {}
-if 'dsp_analyses' not in st.session_state:
-    st.session_state.dsp_analyses = {}
-if 'routes_na' not in st.session_state:
-    st.session_state.routes_na = {}
-if 'routes_retours_manual' not in st.session_state:
-    st.session_state.routes_retours_manual = {}
+for _k in ['feedbacks', 'sent_messages', 'dsp_feedbacks', 'dsp_analyses',
+           'routes_na', 'routes_retours_manual']:
+    if _k not in st.session_state:
+        st.session_state[_k] = {}
+
+# 🔄 Le fichier commun fait foi : on recharge l'état partagé à chaque action
+charger_etat_partage()
 
 st.markdown("""
 <style>
@@ -52,12 +53,38 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# SIDEBAR
+# ==============================================
+# SIDEBAR - EXTRACTS PARTAGÉS
+# ==============================================
 st.sidebar.header("📁 Charger les extracts")
 file_routes = st.sidebar.file_uploader("1. Extract ROUTES (CSV)", type=["csv"], key="routes")
 file_packages = st.sidebar.file_uploader("2. Extract PACKAGES (CSV)", type=["csv"], key="packages")
 file_itineraires = st.sidebar.file_uploader("3. Extract ITINÉRAIRES (CSV)", type=["csv"], key="itineraires")
 
+enregistrer_upload(file_routes, "routes")
+enregistrer_upload(file_packages, "packages")
+enregistrer_upload(file_itineraires, "itineraires")
+
+meta = lire_json(META_FILE)
+if meta:
+    st.sidebar.markdown("**📂 Données partagées avec l'équipe :**")
+    for nom, info in meta.items():
+        st.sidebar.caption(f"✅ {nom} — {info['fichier']} ({info['date']})")
+
+cb1, cb2 = st.sidebar.columns(2)
+with cb1:
+    if st.button("🔄 Rafraîchir", key="refresh"):
+        st.rerun()
+with cb2:
+    confirmer = st.checkbox("Confirmer", key="confirm_reset")
+if st.sidebar.button("🗑️ Nouvelle journée (tout effacer)", key="reset_all", disabled=not confirmer):
+    reinitialiser_tout()
+    st.session_state.confirm_reset = False
+    st.rerun()
+
+# ==============================================
+# SIDEBAR - SLACK
+# ==============================================
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Config Slack")
 if 'custom_webhooks' not in st.session_state:
@@ -68,7 +95,7 @@ with st.sidebar.expander("➕ Ajouter un webhook DSP"):
     if st.button("✅ Enregistrer", key="save_webhook"):
         if new_dsp and new_webhook:
             st.session_state.custom_webhooks[new_dsp.strip()] = new_webhook.strip()
-            st.success(f"Webhook {new_dsp} enregistré !")
+            st.success(f"Webhook {new_dsp} enregistré (pour ta session) !")
 all_webhooks = {**SLACK_WEBHOOKS}
 all_webhooks.update(st.session_state.custom_webhooks)
 if all_webhooks:
@@ -76,77 +103,66 @@ if all_webhooks:
     for dn in all_webhooks:
         st.sidebar.markdown(f"  ✅ {dn}")
 
-# SAUVEGARDE / RESTAURATION FEEDBACKS
+# ==============================================
+# SIDEBAR - SAUVEGARDE / RESTAURATION JSON (archive)
+# ==============================================
 st.sidebar.markdown("---")
-st.sidebar.header("💾 Feedbacks entre Flow Meetings")
-if st.sidebar.button("💾 Sauvegarder les feedbacks", key="save_fb", type="primary"):
-    save_data = {
-        "feedbacks": dict(st.session_state.dsp_feedbacks),
-        "analyses": dict(st.session_state.dsp_analyses),
-        "routes_na": {k: v for k, v in st.session_state.routes_na.items()},
-        "routes_retours_manual": {k: v for k, v in st.session_state.routes_retours_manual.items()},
-        "sent_messages": dict(st.session_state.sent_messages),
-        "saved_at": datetime.now().strftime("%d/%m/%Y %H:%M")
-    }
-    st.session_state.saved_feedbacks = save_data
-    st.sidebar.success(f"✅ Sauvegardé à {save_data['saved_at']}")
-if 'saved_feedbacks' in st.session_state:
-    save_json = json.dumps(st.session_state.saved_feedbacks, ensure_ascii=False, indent=2)
-    st.sidebar.download_button(
-        label="📥 Télécharger sauvegarde (JSON)",
-        data=save_json.encode('utf-8'),
-        file_name=f"feedbacks_FM_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-        mime="application/json", key="dl_save"
-    )
-    st.sidebar.caption(f"💾 Dernière sauvegarde : {st.session_state.saved_feedbacks['saved_at']}")
+st.sidebar.header("💾 Archive des feedbacks")
+if st.session_state.get("etat_saved_at"):
+    st.sidebar.caption(f"🔄 Dernière modif. partagée : {st.session_state.etat_saved_at}")
+archive = {
+    "feedbacks": dict(st.session_state.dsp_feedbacks),
+    "analyses": dict(st.session_state.dsp_analyses),
+    "routes_na": dict(st.session_state.routes_na),
+    "routes_retours_manual": dict(st.session_state.routes_retours_manual),
+    "sent_messages": dict(st.session_state.sent_messages),
+    "saved_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+}
+st.sidebar.download_button(
+    label="📥 Télécharger sauvegarde (JSON)",
+    data=json.dumps(archive, ensure_ascii=False, indent=2, default=str).encode('utf-8'),
+    file_name=f"feedbacks_FM_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+    mime="application/json", key="dl_save"
+)
 uploaded_save = st.sidebar.file_uploader("📤 Restaurer feedbacks (JSON)", type=["json"], key="restore_fb")
 if uploaded_save is not None:
-    try:
-        restored = json.loads(uploaded_save.read().decode('utf-8'))
-        st.session_state.dsp_feedbacks.update(restored.get("feedbacks", {}))
-        st.session_state.dsp_analyses.update(restored.get("analyses", {}))
-        for k, v in restored.get("routes_na", {}).items():
-            if k not in st.session_state.routes_na:
-                st.session_state.routes_na[k] = v
-        for k, v in restored.get("routes_retours_manual", {}).items():
-            if k not in st.session_state.routes_retours_manual:
-                st.session_state.routes_retours_manual[k] = v
-        st.session_state.sent_messages.update(restored.get("sent_messages", {}))
-        st.sidebar.success(f"✅ Restauré ! (du {restored.get('saved_at', '?')})")
-    except Exception as e:
-        st.sidebar.error(f"❌ Erreur : {e}")
+    sig = f"{uploaded_save.name}_{uploaded_save.size}"
+    if st.session_state.get("sig_restore") != sig:  # n'appliquer qu'une fois
+        try:
+            restored = json.loads(uploaded_save.getvalue().decode('utf-8'))
+            st.session_state.dsp_feedbacks.update(restored.get("feedbacks", {}))
+            st.session_state.dsp_analyses.update(restored.get("analyses", {}))
+            for k, v in restored.get("routes_na", {}).items():
+                st.session_state.routes_na.setdefault(k, v)
+            for k, v in restored.get("routes_retours_manual", {}).items():
+                st.session_state.routes_retours_manual.setdefault(k, v)
+            st.session_state.sent_messages.update(restored.get("sent_messages", {}))
+            st.session_state.sig_restore = sig
+            sauvegarder_etat_partage()
+            st.sidebar.success(f"✅ Restauré pour toute l'équipe ! (du {restored.get('saved_at', '?')})")
+        except Exception as e:
+            st.sidebar.error(f"❌ Erreur : {e}")
 
-if file_routes is None or file_packages is None:
-    st.info("👈 Chargez vos fichiers CSV dans la barre latérale.")
+# ==============================================
+# CHARGEMENT DES DONNÉES PARTAGÉES
+# ==============================================
+routes = lire_csv("routes")
+packages = lire_csv("packages")
+itineraires = lire_csv("itineraires")
+
+if routes is None or packages is None:
+    st.info("👈 Aucun extract partagé pour l'instant. Chargez les fichiers CSV dans la barre latérale.")
     st.markdown("### 📋 Mode d'emploi")
     st.markdown("""
-    1. **Glissez-déposez** vos fichiers CSV
-    2. L'analyse se lance **automatiquement**
-    3. Saisissez vos **💬 Feedbacks** et **🔍 Analyses**
+    1. **Une seule personne** glisse-dépose les fichiers CSV → ils sont partagés avec toute l'équipe
+    2. L'analyse se lance **automatiquement** pour tout le monde
+    3. Saisissez vos **💬 Feedbacks** et **🔍 Analyses** (visibles par tous après 🔄 Rafraîchir)
     4. Ajoutez des **routes NA** et **10+ retours manuels**
     5. Cliquez **📥 Télécharger Excel** pour exporter
+    6. Le lendemain : **🗑️ Nouvelle journée** puis rechargez les extracts
     """)
     st.stop()
 
-# CHARGEMENT
-try:
-    routes = pd.read_csv(file_routes, encoding="latin-1")
-except Exception:
-    routes = pd.read_csv(file_routes, encoding="utf-8")
-try:
-    packages = pd.read_csv(file_packages, encoding="latin-1")
-except Exception:
-    packages = pd.read_csv(file_packages, encoding="utf-8")
-itineraires = None
-if file_itineraires is not None:
-    try:
-        itineraires = pd.read_csv(file_itineraires, encoding="latin-1")
-    except Exception:
-        itineraires = pd.read_csv(file_itineraires, encoding="utf-8")
-    itineraires.columns = itineraires.columns.str.strip()
-
-routes.columns = routes.columns.str.strip()
-packages.columns = packages.columns.str.strip()
 routes["Type"] = routes["Type de service de livraison"].apply(get_route_type)
 drt = dict(zip(routes["Code de la route"], routes["Type"]))
 retours_count = packages.groupby("RouteCode").size().reset_index(name="retours")
@@ -158,9 +174,10 @@ atrisk = routes[routes["Progression de la route"] == "AT_RISK"].copy()
 retours10 = routes[routes["retours"] >= 10].copy()
 dsps = sorted(routes["DSP"].unique())
 now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+date_extract = meta.get("routes", {}).get("date", now_str)
 
 # MÉTRIQUES
-st.markdown(f"**Analyse du {now_str}**")
+st.markdown(f"**Extracts chargés le {date_extract}** — affiché le {now_str}")
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 with c1: st.metric("🔴 BEHIND", len(behind))
 with c2: st.metric("🟠 AT_RISK", len(atrisk))
@@ -179,7 +196,7 @@ tabs = st.tabs(tab_names)
 # RÉSUMÉ GLOBAL
 with tabs[0]:
     st.markdown("## 📊 Résumé Global")
-    st.markdown('<div class="sync-info">🔄 Feedbacks et analyses se synchronisent automatiquement.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sync-info">🔄 Feedbacks et analyses partagés avec toute l\'équipe — cliquez sur « Rafraîchir » pour voir les saisies des collègues.</div>', unsafe_allow_html=True)
     st.markdown("")
 
     st.markdown('<span class="behind-badge">ROUTES EN RETARD (BEHIND)</span>', unsafe_allow_html=True)
@@ -195,7 +212,6 @@ with tabs[0]:
     else:
         st.success("✅ Aucune route en retard")
 
-
     st.markdown('<span class="atrisk-badge">ROUTES A RISQUE (AT_RISK)</span>', unsafe_allow_html=True)
     if not atrisk.empty:
         da = atrisk[["Code de la route", "DSP", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
@@ -208,7 +224,6 @@ with tabs[0]:
             st.dataframe(dsp_df, use_container_width=True, hide_index=True)
     else:
         st.success("✅ Aucune route à risque")
-
 
     st.markdown("---")
     st.markdown('<span class="retour-badge">ROUTES AVEC 10+ RETOURS</span>', unsafe_allow_html=True)
@@ -235,7 +250,6 @@ with tabs[0]:
             st.markdown(f"**🏢 {dsp_name}** ({len(dsp_df)} routes)")
             st.dataframe(dsp_df, use_container_width=True, hide_index=True)
 
-
     st.markdown("---")
     st.markdown('<span class="na-badge">ROUTES NA (NON TENTÉS)</span>', unsafe_allow_html=True)
     all_na = get_all_na_routes()
@@ -251,6 +265,7 @@ with tabs[0]:
         st.dataframe(pd.DataFrame(all_mr), use_container_width=True, hide_index=True)
     st.markdown("---")
     st.markdown("### ⛈️ Bad Weather & 🐕 Unsafe due to Dog")
+    route_to_dsp = dict(zip(routes["Code de la route"], routes["DSP"]))
     bad_weather_all = packages[packages["ReasonCode"].str.lower().str.contains("bad weather", na=False)]
     unsafe_dog_all = packages[packages["ReasonCode"].str.lower().str.contains("unsafe due to dog", na=False)]
 
@@ -258,7 +273,7 @@ with tabs[0]:
         st.markdown(f'<span style="background-color:#1565C0;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">⛈️ Bad Weather — {len(bad_weather_all)} colis</span>', unsafe_allow_html=True)
         bw_all = bad_weather_all[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
         bw_all.insert(1, "Type", bw_all["RouteCode"].map(drt))
-        bw_all.insert(2, "DSP", bw_all["RouteCode"].map(dict(zip(routes["Code de la route"], routes["DSP"]))))
+        bw_all.insert(2, "DSP", bw_all["RouteCode"].map(route_to_dsp))
         bw_all.columns = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
         for dsp_name in sorted(bw_all["DSP"].dropna().unique()):
             dsp_bw = bw_all[bw_all["DSP"] == dsp_name]
@@ -272,7 +287,7 @@ with tabs[0]:
         st.markdown(f'<span style="background-color:#C62828;color:white;padding:3px 10px;border-radius:5px;font-weight:bold;">🐕 Unsafe due to Dog — {len(unsafe_dog_all)} colis</span>', unsafe_allow_html=True)
         dog_all = unsafe_dog_all[["RouteCode", "ScannableId", "Address", "ReasonCode"]].copy()
         dog_all.insert(1, "Type", dog_all["RouteCode"].map(drt))
-        dog_all.insert(2, "DSP", dog_all["RouteCode"].map(dict(zip(routes["Code de la route"], routes["DSP"]))))
+        dog_all.insert(2, "DSP", dog_all["RouteCode"].map(route_to_dsp))
         dog_all.columns = ["Route", "Type", "DSP", "Tracking", "Adresse", "Raison"]
         for dsp_name in sorted(dog_all["DSP"].dropna().unique()):
             dsp_dog = dog_all[dog_all["DSP"] == dsp_name]
@@ -314,7 +329,7 @@ with tabs[0]:
 for idx, dsp in enumerate(dsps):
     with tabs[idx + 1]:
         st.markdown(f"## 🏢 {dsp}")
-        st.caption(f"Analyse du {now_str}")
+        st.caption(f"Extracts du {date_extract}")
 
         dsp_routes = routes[routes["DSP"] == dsp].copy()
         dsp_behind = dsp_routes[dsp_routes["Progression de la route"] == "BEHIND"]
@@ -323,7 +338,6 @@ for idx, dsp in enumerate(dsps):
         all_na = get_all_na_routes()
         all_mr = get_all_manual_retours()
         dsp_na_list = [r for r in all_na if r.get("DSP", "") == dsp]
-        dsp_mr_list = [r for r in all_mr if r.get("DSP", "") == dsp]
 
         m1, m2, m3, m4, m5 = st.columns(5)
         with m1: st.metric("🔴 BEHIND", len(dsp_behind))
@@ -334,7 +348,6 @@ for idx, dsp in enumerate(dsps):
 
         st.markdown('<span class="behind-badge">BEHIND</span>', unsafe_allow_html=True)
         if not dsp_behind.empty:
-            
             dfb = dsp_behind[["Code de la route", "Type", "Tous les arrêts", "Arrêts effectués", "arrêts non démarrés", "livraisons au total", "retours"]].copy()
             dfb.columns = ["Route", "Type", "Arrêts", "Effectués", "Restants", "Livraisons", "Retours"]
             afficher_tableau_avec_feedback(dfb, f"dsp_behind_{dsp}")
@@ -385,10 +398,7 @@ for idx, dsp in enumerate(dsps):
                 route_pkg = dsp_pkg[dsp_pkg["RouteCode"] == rc]
                 if route_pkg.empty:
                     continue
-                row_data = {
-                    "Route": rc,
-                    "Type": drt.get(rc, "-"),
-                }
+                row_data = {"Route": rc, "Type": drt.get(rc, "-")}
                 total_known = 0
                 for reason in reasons_list:
                     cnt = len(route_pkg[route_pkg["ReasonCode"] == reason])
@@ -399,8 +409,7 @@ for idx, dsp in enumerate(dsps):
                 row_data["Total"] = len(route_pkg)
                 detail_rows.append(row_data)
             if detail_rows:
-                detail_df = pd.DataFrame(detail_rows)
-                detail_df = detail_df.sort_values("Total", ascending=False)
+                detail_df = pd.DataFrame(detail_rows).sort_values("Total", ascending=False)
                 st.dataframe(detail_df, use_container_width=True, hide_index=True)
             else:
                 st.info("Aucun retour")
@@ -431,8 +440,9 @@ for idx, dsp in enumerate(dsps):
                 st.dataframe(dog_detail, use_container_width=True, hide_index=True)
             else:
                 st.success("✅ Aucun retour Unsafe due to Dog")
+
         # ITINÉRAIRES
-        if itineraires is not None:
+        if itineraires is not None and "DSP" in itineraires.columns:
             st.markdown("---")
             st.markdown("### 🗺️ Itinéraires détaillés")
             dsp_itin = itineraires[itineraires["DSP"] == dsp].copy()
@@ -448,37 +458,38 @@ for idx, dsp in enumerate(dsps):
                     "durée prévue des heures supplémentaires (minutes)",
                     "% restant de la batterie du véhicule électrique"
                 ]
+                renommage = {
+                    "cortex_avg_pace_stops_per_hour": "Pace (arrêts/h)",
+                    "durée prévue des heures supplémentaires (minutes)": "OT prévu (min)",
+                    "% restant de la batterie du véhicule électrique": "🔋 Batterie",
+                    "nombre total de colis": "Colis",
+                    "Type de service de livraison": "Type",
+                    "Code de la route": "Route",
+                    "État d'avancement": "Statut",
+                    "Tous les arrêts": "Arrêts",
+                    "Arrêts effectués": "Effectués",
+                    "arrêts non démarrés": "Restants",
+                    "livraisons au total": "Livraisons",
+                    "Heure de départ prévue": "Départ prévu",
+                    "Retour prévu à la station": "Retour prévu",
+                }
                 cols_exist = [c for c in cols_display if c in dsp_itin.columns]
-                dsp_itin_display = dsp_itin[cols_exist].copy()
-                dsp_itin_display.columns = [
-                    c.replace("cortex_avg_pace_stops_per_hour", "Pace (arrêts/h)")
-                    .replace("durée prévue des heures supplémentaires (minutes)", "OT prévu (min)")
-                    .replace("% restant de la batterie du véhicule électrique", "🔋 Batterie")
-                    .replace("nombre total de colis", "Colis")
-                    .replace("Type de service de livraison", "Type")
-                    .replace("Code de la route", "Route")
-                    .replace("État d'avancement", "Statut")
-                    .replace("Tous les arrêts", "Arrêts")
-                    .replace("Arrêts effectués", "Effectués")
-                    .replace("arrêts non démarrés", "Restants")
-                    .replace("livraisons au total", "Livraisons")
-                    .replace("Heure de départ prévue", "Départ prévu")
-                    .replace("Départ réel", "Départ réel")
-                    .replace("Retour prévu à la station", "Retour prévu")
-                    for c in cols_exist
-                ]
-                behind_itin = dsp_itin_display[dsp_itin_display["Statut"] == "BEHIND"]
-                atrisk_itin = dsp_itin_display[dsp_itin_display["Statut"] == "AT_RISK"]
-                other_itin = dsp_itin_display[~dsp_itin_display["Statut"].isin(["BEHIND", "AT_RISK"])]
-                if not behind_itin.empty:
-                    st.markdown(f'<span class="behind-badge">🔴 BEHIND — {len(behind_itin)} routes</span>', unsafe_allow_html=True)
-                    st.dataframe(behind_itin, use_container_width=True, hide_index=True)
-                if not atrisk_itin.empty:
-                    st.markdown(f'<span class="atrisk-badge">🟠 AT_RISK — {len(atrisk_itin)} routes</span>', unsafe_allow_html=True)
-                    st.dataframe(atrisk_itin, use_container_width=True, hide_index=True)
-                if not other_itin.empty:
-                    with st.expander(f"📋 Autres routes ({len(other_itin)}) — ON_TIME, AHEAD, COMPLETE, NA"):
-                        st.dataframe(other_itin, use_container_width=True, hide_index=True)
+                dsp_itin_display = dsp_itin[cols_exist].rename(columns=renommage)
+                if "Statut" in dsp_itin_display.columns:
+                    behind_itin = dsp_itin_display[dsp_itin_display["Statut"] == "BEHIND"]
+                    atrisk_itin = dsp_itin_display[dsp_itin_display["Statut"] == "AT_RISK"]
+                    other_itin = dsp_itin_display[~dsp_itin_display["Statut"].isin(["BEHIND", "AT_RISK"])]
+                    if not behind_itin.empty:
+                        st.markdown(f'<span class="behind-badge">🔴 BEHIND — {len(behind_itin)} routes</span>', unsafe_allow_html=True)
+                        st.dataframe(behind_itin, use_container_width=True, hide_index=True)
+                    if not atrisk_itin.empty:
+                        st.markdown(f'<span class="atrisk-badge">🟠 AT_RISK — {len(atrisk_itin)} routes</span>', unsafe_allow_html=True)
+                        st.dataframe(atrisk_itin, use_container_width=True, hide_index=True)
+                    if not other_itin.empty:
+                        with st.expander(f"📋 Autres routes ({len(other_itin)}) — ON_TIME, AHEAD, COMPLETE, NA"):
+                            st.dataframe(other_itin, use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(dsp_itin_display, use_container_width=True, hide_index=True)
             else:
                 st.info("Aucun itinéraire pour ce DSP")
 
@@ -494,14 +505,15 @@ for idx, dsp in enumerate(dsps):
 
         sc1, sc2 = st.columns(2)
         with sc1:
-            if st.button(f"📋 Copier le message", key=f"copy_{dsp}"):
+            if st.button("📋 Copier le message", key=f"copy_{dsp}"):
                 st.code(slack_msg, language=None)
         with sc2:
             webhook_url = all_webhooks.get(dsp, "")
             if webhook_url:
-                if st.button(f"📤 Envoyer sur Slack", key=f"send_{dsp}", type="primary"):
+                if st.button("📤 Envoyer sur Slack", key=f"send_{dsp}", type="primary"):
                     if envoyer_slack(webhook_url, slack_msg):
                         st.session_state.sent_messages[msg_key] = datetime.now().strftime("%H:%M")
+                        sauvegarder_etat_partage()
                         st.success("✅ Envoyé !")
                         st.rerun()
                     else:
@@ -509,16 +521,8 @@ for idx, dsp in enumerate(dsps):
             else:
                 st.info("💡 Configurez le webhook Slack pour ce DSP dans la sidebar")
 
-# SAUVEGARDE AUTOMATIQUE
-auto_save = {
-    "feedbacks": dict(st.session_state.dsp_feedbacks),
-    "analyses": dict(st.session_state.dsp_analyses),
-    "routes_na": {k: v for k, v in st.session_state.routes_na.items()},
-    "routes_retours_manual": {k: v for k, v in st.session_state.routes_retours_manual.items()},
-    "sent_messages": dict(st.session_state.sent_messages),
-    "saved_at": datetime.now().strftime("%d/%m/%Y %H:%M")
-}
-st.session_state.saved_feedbacks = auto_save
+# 💾 SAUVEGARDE PARTAGÉE (à chaque action)
+sauvegarder_etat_partage()
 
 # FOOTER
 st.markdown("---")
@@ -527,5 +531,3 @@ st.markdown(
     "Développé pour l'équipe PM DLP2</small></center>",
     unsafe_allow_html=True
 )
-
-
